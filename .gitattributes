@@ -1,0 +1,12 @@
+# .sh 一律 LF，不管 clone 到哪個平台、也不管對方的 core.autocrlf 設成什麼。
+# bash 讀到 \r 會噴 `$'\r': command not found`。
+#
+# 為什麼非釘不可：phase*.sh 走 orchestrator 的 Get-Script，它會自己把 CRLF 轉掉，
+# 所以撐得住；但 verify.sh 是直接餵給 bash 的
+# （wsl -d <distro> -u <user> -- bash -l < scripts/verify.sh），
+# 沒有任何東西幫它轉。在 core.autocrlf=true 的 Windows 上 clone 下來就是壞的。
+*.sh text eol=lf
+
+# .ps1 維持平台原生換行（PowerShell 兩種都吃）。
+# 注意：換行屬性不影響 BOM——.ps1 開頭的 EF BB BF 是內容的一部分，必須保留，
+# 拿掉的話 PS 5.1 會用系統 ANSI codepage 解檔，整份語法錯誤。見 CLAUDE.md。

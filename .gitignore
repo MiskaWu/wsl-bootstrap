@@ -1,0 +1,8 @@
+# 真實設定含個人資訊（username / SSH scope），不 commit
+config.ps1
+
+# Windows / editor 雜物
+*.log
+Thumbs.db
+.DS_Store
+.vscode/
