@@ -16,7 +16,7 @@ param(
     # 不能寫成 "$PSScriptRoot\config.ps1"：以 `-File` 呼叫時，param 預設值求值的當下
     # $PSScriptRoot 還是空的，會算出 '\config.ps1'（當前磁碟機根目錄）然後找不到檔案。
     # 在 PS session 裡 .\bootstrap.ps1 或用 & 呼叫時反而正常——所以這個 bug 只在
-    # `-File` 模式浮現，也就是 README/HANDOFF 教的 ExecutionPolicy 繞道那條路。
+    # `-File` 模式浮現，也就是 README 教的 ExecutionPolicy 繞道那條路。
     [string]$ConfigPath
 )
 
@@ -151,7 +151,7 @@ Invoke-Wsl -Script (Get-Script 'phase3-user.sh') -AsUser $User -Label 'phase3-us
 # 這不是 phase3 沒做好：podman.socket 在 phase3 當下確實 enable 成功了（journal
 # 看得到 "Listening on podman.socket"），是之後 user manager 才崩。
 # 一次 terminate 就全部恢復（實測 running / active / socket 存在）。不做的話，
-# 使用者照 HANDOFF §6 馬上驗證會看到一片失敗，卻其實只是需要重啟。
+# 使用者跑完馬上驗證會看到一片失敗，卻其實只是需要重啟。
 # ===========================================================================
 Info "wsl --terminate $Distro（收尾，確保第一次進入是乾淨 session）"
 wsl.exe --terminate $Distro

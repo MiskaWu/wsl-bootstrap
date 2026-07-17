@@ -4,22 +4,21 @@
 
 Config-driven、無人值守的 WSL2 開發環境建置工具。一個 PowerShell orchestrator
 （`bootstrap.ps1`）在 Windows 上跑，把三支 bash 腳本 pipe 進 WSL distro 執行，
-中途自動重啟 WSL 兩次。產出：一個乾淨的 Ubuntu 24.04 distro，內含 Podman
+中途自動重啟 WSL 三次。產出：一個乾淨的 Ubuntu 26.04 distro，內含 Podman
 (rootless)、Go、Claude Code，以及可選的 Node/Python/client tools/SSH keys。
 
 **這不是一個會長期跑的服務，是一次性的建置腳本。**「正確」的定義是：在一台乾淨的
-Windows 機器上從零跑到底，不需要人介入，且結束後驗證清單全過。
+Windows 機器上從零跑到底，不需要人介入，且結束後 `scripts/verify.sh` 全過。
 
 ## 兩份文件的分工（不要搞混）
 
 | 檔案 | 讀者 | 內容 |
 |---|---|---|
-| `CLAUDE.md`（本檔） | 在**這個 repo 裡改程式碼**的 Claude | 架構約束、慣例、已知地雷 |
-| `HANDOFF.md` | 在**目標機器上執行建置**的 Claude CLI | 執行步驟、決策脈絡、驗證清單 |
+| `CLAUDE.md`（本檔） | 在**這個 repo 裡改程式碼**的 Claude | 架構約束、慣例、已知地雷、排查 |
 | `README.md` | 人類（英文，對外） | 專案簡介與用法 |
 
-改動若影響執行流程或驗證方式，`HANDOFF.md` 要同步更新；影響對外行為（選項、預設值、
-安裝內容）則 `README.md` 要同步。三份不同步是這個 repo 最容易累積的債。
+改動若影響對外行為（選項、預設值、安裝內容）`README.md` 要同步。兩份不同步是這個
+repo 最容易累積的債。
 
 ## 架構決策（已定案，不要重新論證）
 
@@ -32,6 +31,14 @@ Windows 機器上從零跑到底，不需要人介入，且結束後驗證清單
   image，不當 app runtime。
 - **Go 直接裝 binary 到 `/usr/local/go`**，不用 gvm/mise。build/prod 的 Go 版本由各
   專案 Dockerfile 自己 pin，跟 host 的 Go 各司其職。
+- **底座是 Ubuntu 26.04**（Resolute Raccoon，2026-04-23 GA，支援到 2031）。2026-07
+  從 24.04 改過來，理由是 **podman 5.7 vs 24.04 凍結在 4.9.3**——Ubuntu LTS 不 rebase，
+  24.04 會用 2024 年初的 podman 直到 2029，而 rootless + `podman generate kube` 對齊
+  k3s 是核心決策。Kubic repo 已停，沒有可信的替代 apt repo。次要理由：podman 4.9 的
+  Docker API 上限是 1.41，而 docker client v29 已要求 1.44（compose 內含的 moby client
+  目前仍會往下協商，但那是定時炸彈）；podman 5.x 提供 1.44，直接避開。
+  已知代價：26.04 的 userland 換血較大（uutils、sudo-rs 成為預設），但對本 repo 暴露面
+  小——NOPASSWD sudo 不會看到提示，`cp`/`mv`/`rm` 仍是 GNU 版。
 - **Node → nvm，Python → uv。**
 - **設定走 config 檔，不是互動式問答。** 執行過程零互動是核心價值，任何新增的
   「請使用者輸入」都違反這點——唯一例外是不可逆操作的確認（如 unregister distro）。
@@ -199,7 +206,7 @@ head -c 3 bootstrap.ps1 | xxd -p      # efbbbf，BOM 不能掉
 ```
 
 **用 `-File` 模式測，不要只用 `.\bootstrap.ps1`。** 兩者行為不同（`$PSScriptRoot`
-在 param 預設值裡只有 `-File` 模式是空的），而 `-File` 正是 README/HANDOFF 教的
+在 param 預設值裡只有 `-File` 模式是空的），而 `-File` 正是 README 教的
 ExecutionPolicy 繞道，也就是使用者實際會走的路。
 
 真要端到端驗證，成本是 `wsl --unregister <distro>` 後整套重跑（約 10–20 分鐘）。
@@ -207,4 +214,35 @@ ExecutionPolicy 繞道，也就是使用者實際會走的路。
 bug（BOM、`$PSScriptRoot`、pipe 補 CR）**全都推理不出來、只能實測**——碰到
 PowerShell↔bash 邊界的東西，用上面那種小實驗隔離驗證，別用整套重跑當測試。
 
-改完後對照 `HANDOFF.md` §6 的驗證清單，確認你的改動不會讓清單裡某項失效。
+改完後跑驗收，確認沒讓哪一項失效：
+
+```powershell
+wsl -d dev-2026 -u miska -- bash -l < scripts/verify.sh
+```
+
+## 出錯時的排查方向
+
+- **`bootstrap.ps1` 一跑就噴語法錯**（缺少 `}` 之類，行號莫名其妙）：八成是 `.ps1` 的
+  UTF-8 BOM 被編輯器存掉了，見上面的地雷。`head -c 3 bootstrap.ps1 | xxd -p` 應為 `efbbbf`。
+- **某個 phase 中斷**：每個 phase 都檢查 `$LASTEXITCODE`，會停在出錯處。
+  `wsl --unregister dev-2026` 清掉半成品再重跑。
+- **`--name` 不被支援**：`wsl --update`，或改用 `wsl --import` 從 rootfs 建。
+- **`systemctl --user` 連不上 / `is-system-running` 是 degraded / socket 不見**：
+  先看 `systemctl is-active user@1000.service`。若是 `failed`，journal 會有
+  `Failed to spawn executor: Device or resource busy`——這是 systemd 259 在 WSL 上被
+  反覆開關 session 撞出的 race，**不是安裝失敗**。`wsl --terminate dev-2026` 重進即可，
+  實測全部恢復。bootstrap 收尾已自動 terminate 過一次，正常不該遇到。
+  （`verify.sh` 開頭的 settle 迴圈就是在等這個安定，不等會拿到假 FAIL。）
+- **`docker-compose up` 的容器卡在 `Created`**，或噴
+  `netavark: nftables error: "nft" did not return successfully while applying ruleset`：
+  netavark 預設的 nftables driver 在 WSL2 kernel 上不work。確認 phase2 裝了 `iptables`
+  且 `/etc/containers/containers.conf` 有 `firewall_driver = "iptables"`。
+  **`podman run` 不受影響**（走 pasta 預設網路），所以這問題只在 compose 浮現。
+- **`podman pull postgres` 說 short-name 無法解析**：確認
+  `/etc/containers/registries.conf` 有 `unqualified-search-registries = ["docker.io"]`。
+  會 fail fast，不會卡住等輸入，所以不影響無人值守。
+- **`podman run` 正常但 `docker-compose up` 噴 `oom_score_adj: Permission denied`**：
+  compose 經 systemd user unit 呼叫 podman，容器繼承 `OOMScoreAdjust=100`，規格要求 0
+  時無法以非特權調降。解法是給 `user@.service` 加 `OOMScoreAdjust=0` drop-in。
+  2026-07 實測未遇到（crun 夠新），列在這裡以防復發。
+- **go.dev 抓最新版失敗**：把 `$GoVersion` 改成具體版本號重跑 phase3。

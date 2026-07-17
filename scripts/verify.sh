@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# 驗收腳本：對照 HANDOFF.md §6。在 distro 內以目標 user 執行。
+# 驗收腳本：建置完成後的驗收。在 distro 內以目標 user 執行。
 #
 #   wsl -d dev-2026 -u miska -- bash -l < scripts/verify.sh
 #
@@ -37,7 +37,7 @@ settle || echo "  (systemd 等待 30s 仍未安定，以下結果可能不準)"
 echo "== 系統 =="
 chk "os"          '. /etc/os-release && echo "$PRETTY_NAME"'
 chk "whoami"      'whoami'
-# degraded 可接受（HANDOFF §6），所以判字串不判 exit code——is-system-running
+# degraded 可接受（見 CLAUDE.md 排查），所以判字串不判 exit code——is-system-running
 # 在 degraded 時回傳非零，直接餵給 chk 會誤判成 FAIL。
 chk "systemd"     'st=$(systemctl is-system-running 2>&1); case "$st" in running) echo "$st";; degraded) echo "$st ($(systemctl --failed --no-legend --no-pager | wc -l) 個 unit 失敗，見 systemctl --failed)";; *) echo "$st"; false;; esac'
 chk "user@"       'systemctl is-active "user@$(id -u).service"'
