@@ -2,7 +2,7 @@
 # =============================================================================
 # 驗收腳本：建置完成後的驗收。在 distro 內以目標 user 執行。
 #
-#   wsl -d dev-2026 -u miska -- bash -l < scripts/verify.sh
+#   wsl -d dev -u miskawu -- bash -l < scripts/verify.sh
 #
 # 從 stdin 餵進去是刻意的：`wsl ... bash -lc '<一大串>'` 會經過
 # Windows shell → wsl.exe → bash 三層引號，實測會把 $VAR 和 $() 吃掉，

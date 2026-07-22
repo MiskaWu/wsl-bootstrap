@@ -102,7 +102,7 @@ export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
 
 **`.bashrc` 對非互動 shell 無效。** Ubuntu 預設 `.bashrc` 開頭就 `case $- in *i*) ;;
 *) return;; esac`。`add_line` 是 append 到檔尾，所以寫進去的 `export` 只在互動 shell
-生效——`wsl -d dev-2026 -e <cmd>`、腳本、cron 都吃不到。環境變數該放 `~/.profile` 或
+生效——`wsl -d dev -e <cmd>`、腳本、cron 都吃不到。環境變數該放 `~/.profile` 或
 `/etc/profile.d/`；alias 放 `.bashrc` 沒問題（本來就只對互動有意義）。
 
 **`.ps1` 必須存成 UTF-8 **帶 BOM**（2026-07 踩到，已修）。** PS 5.1 讀 `.ps1` 時，
@@ -217,7 +217,7 @@ PowerShell↔bash 邊界的東西，用上面那種小實驗隔離驗證，別�
 改完後跑驗收，確認沒讓哪一項失效：
 
 ```powershell
-wsl -d dev-2026 -u miska -- bash -l < scripts/verify.sh
+wsl -d dev -u miskawu -- bash -l < scripts/verify.sh
 ```
 
 ## 出錯時的排查方向
@@ -225,12 +225,12 @@ wsl -d dev-2026 -u miska -- bash -l < scripts/verify.sh
 - **`bootstrap.ps1` 一跑就噴語法錯**（缺少 `}` 之類，行號莫名其妙）：八成是 `.ps1` 的
   UTF-8 BOM 被編輯器存掉了，見上面的地雷。`head -c 3 bootstrap.ps1 | xxd -p` 應為 `efbbbf`。
 - **某個 phase 中斷**：每個 phase 都檢查 `$LASTEXITCODE`，會停在出錯處。
-  `wsl --unregister dev-2026` 清掉半成品再重跑。
+  `wsl --unregister dev` 清掉半成品再重跑。
 - **`--name` 不被支援**：`wsl --update`，或改用 `wsl --import` 從 rootfs 建。
 - **`systemctl --user` 連不上 / `is-system-running` 是 degraded / socket 不見**：
   先看 `systemctl is-active user@1000.service`。若是 `failed`，journal 會有
   `Failed to spawn executor: Device or resource busy`——這是 systemd 259 在 WSL 上被
-  反覆開關 session 撞出的 race，**不是安裝失敗**。`wsl --terminate dev-2026` 重進即可，
+  反覆開關 session 撞出的 race，**不是安裝失敗**。`wsl --terminate dev` 重進即可，
   實測全部恢復。bootstrap 收尾已自動 terminate 過一次，正常不該遇到。
   （`verify.sh` 開頭的 settle 迴圈就是在等這個安定，不等會拿到假 FAIL。）
 - **`docker-compose up` 的容器卡在 `Created`**，或噴

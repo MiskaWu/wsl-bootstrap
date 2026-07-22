@@ -34,7 +34,7 @@ and group changes to take effect) — that's automatic, not something you babysi
 Then check the result:
 
 ```powershell
-wsl -d dev-2026 -u miska -- bash -l < scripts/verify.sh
+wsl -d dev -u miskawu -- bash -l < scripts/verify.sh
 ```
 
 This drives a real `docker-compose up` against the rootless Podman socket, not just
@@ -68,7 +68,7 @@ With Podman it also writes two config files that WSL2 specifically needs:
 | `$InstallNode` | `$false` | nvm + Node |
 | `$InstallPython` | `$true` | uv |
 | `$InstallClientTools` | `$true` | psql, redis-cli, nats |
-| `$GenerateSSHKey` | `$true` | one `id_ed25519_dev2026_<scope>` per scope |
+| `$GenerateSSHKey` | `$true` | one `id_ed25519_<distro>_<scope>` per scope (prefix derived from `$Distro`) |
 
 ## Layout
 

@@ -128,6 +128,9 @@ Start-Sleep -Seconds 2
 # Phase 3: user-level toolchain
 # ===========================================================================
 $sshScopes = ($SSHKeyScopes -join ',')
+# SSH key 檔名前綴從 distro 名推導（去掉非英數字元），這樣改 $Distro 就一次到位，
+# 不會留下寫死的舊名字。例：'dev' → 'dev'、'miskawu-dev' → 'miskawudev'。
+$sshTag = ($Distro -replace '[^A-Za-z0-9]','')
 Invoke-Wsl -Script (Get-Script 'phase3-user.sh') -AsUser $User -Label 'phase3-user' `
     -EnvVars @{
         BS_RUNTIME        = $Runtime
@@ -140,6 +143,7 @@ Invoke-Wsl -Script (Get-Script 'phase3-user.sh') -AsUser $User -Label 'phase3-us
         BS_GEN_SSH        = ([string]$GenerateSSHKey).ToLower()
         BS_SSH_SCOPES     = $sshScopes
         BS_SSH_COMMENT    = $SSHKeyComment
+        BS_SSH_TAG        = $sshTag
     }
 
 # ===========================================================================

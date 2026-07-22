@@ -10,11 +10,11 @@
 # =============================================================================
 
 # ---- Distro ----------------------------------------------------------------
-$Distro      = 'dev-2026'
+$Distro      = 'dev'            # distro 名（wsl -d <名>）；SSH key 前綴由此推導
 # Ubuntu-26.04 (Resolute Raccoon, 2026-04 GA) 帶 podman 5.7；24.04 凍在 podman
 # 4.9.3 直到 2029。wsl --list --online 可查可用 image 名稱。
 $UbuntuImage = 'Ubuntu-26.04'
-$User        = 'miska'
+$User        = 'miskawu'        # distro 內的登入使用者（建議對齊 Windows 帳號）
 
 # ---- Container runtime -----------------------------------------------------
 # 'podman' (預設，rootless，對齊 k3s) 或 'docker' (Docker Engine)
@@ -36,12 +36,13 @@ $InstallClientTools = $true      # psql, redis-cli, nats CLI
 
 # ---- SSH key ---------------------------------------------------------------
 $GenerateSSHKey = $true
-# 每個 scope 產一把 id_ed25519_dev2026_<scope>
+# 每個 scope 產一把 id_ed25519_<distro>_<scope>（前綴由 $Distro 推導）
 $SSHKeyScopes   = @('github', 'gitlab', 'homelab')
-$SSHKeyComment  = 'miska@dev-2026'
+# 身分標記；phase3 自動接上 scope 與建置日期，如 miskawu@acme-dev-github 2026-07-22
+$SSHKeyComment  = 'miskawu@acme-dev'
 
 # ---- 舊 distro 清理（謹慎！） ----------------------------------------------
-# $true 會在成功建好 dev-2026 後，詢問是否 unregister 指定的舊 distro。
+# $true 會在成功建好新 distro 後，詢問是否 unregister 指定的舊 distro。
 # 預設 $false —— 你說「保留一個月當 rollback」，所以先不動舊的。
 $UnregisterOld      = $false
 $OldDistroName      = ''         # 例如 'Ubuntu' 或 'Ubuntu-22.04'

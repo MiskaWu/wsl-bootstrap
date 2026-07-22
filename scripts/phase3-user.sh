@@ -9,7 +9,7 @@
 #   BS_INSTALL_NODE, BS_NODE_VERSION
 #   BS_INSTALL_PYTHON
 #   BS_INSTALL_CLIENTS
-#   BS_GEN_SSH, BS_SSH_SCOPES (逗號分隔), BS_SSH_COMMENT
+#   BS_GEN_SSH, BS_SSH_SCOPES (逗號分隔), BS_SSH_COMMENT, BS_SSH_TAG
 # =============================================================================
 
 # add_profile / add_bashrc 的參數一律用單引號：要寫進檔案的是字面的 $HOME、
@@ -143,16 +143,20 @@ if [ "${BS_GEN_SSH:-false}" = "true" ]; then
   log "產生 SSH keys"
   mkdir -p "$HOME/.ssh"
   chmod 700 "$HOME/.ssh"
+  # 檔名前綴由 orchestrator 從 distro 名推導後傳入（BS_SSH_TAG），不再寫死。
+  ssh_tag="${BS_SSH_TAG:-dev}"
+  # 註解蓋上建置日期，方便日後判斷金鑰年紀 / 輪替；用當下日期，不寫死。
+  key_date="$(date +%F)"
   IFS=',' read -ra SCOPES <<< "${BS_SSH_SCOPES:-github}"
   for scope in "${SCOPES[@]}"; do
     scope="$(echo "$scope" | tr -d '[:space:]')"
     [ -z "$scope" ] && continue
-    keyfile="$HOME/.ssh/id_ed25519_dev2026_${scope}"
+    keyfile="$HOME/.ssh/id_ed25519_${ssh_tag}_${scope}"
     if [ -f "$keyfile" ]; then
       log "  $keyfile 已存在，略過"
     else
       ssh-keygen -t ed25519 -N '' \
-        -C "${BS_SSH_COMMENT:-dev-2026}-${scope}" \
+        -C "${BS_SSH_COMMENT:-miskawu@acme-dev}-${scope} ${key_date}" \
         -f "$keyfile"
       log "  產生 $keyfile"
     fi
@@ -174,7 +178,7 @@ if [ "${BS_GEN_SSH:-false}" = "true" ]; then
   for scope in "${SCOPES[@]}"; do
     scope="$(echo "$scope" | tr -d '[:space:]')"
     [ -z "$scope" ] && continue
-    echo "      cat ~/.ssh/id_ed25519_dev2026_${scope}.pub"
+    echo "      cat ~/.ssh/id_ed25519_${BS_SSH_TAG:-dev}_${scope}.pub"
   done
 fi
 echo " 3. git config --global user.name / user.email"
