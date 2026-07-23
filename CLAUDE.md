@@ -156,9 +156,13 @@ OOBE 偵測到有效 consent 檔就跳過提問、且覆蓋 Windows registry 預
 - **provision 中斷**：檢查 `$LASTEXITCODE` 會停在出錯處；`wsl --unregister <distro>` 清半
   成品重跑。
 - **`--name` 不支援**：`wsl --update`，或改 `wsl --import` 從 rootfs 建。
-- **`is-system-running` degraded / user session 起不來**：systemd 259 在 WSL 冷啟動的
-  race，**不是建置失敗**。`wsl --terminate <distro>` 重進即恢復（verify.sh 的 settle 迴圈
-  就在等這個）。
+- **`is-system-running` degraded / user session 起不來 / rootless socket 起不來**：
+  WSL 上 systemd 259 的 `user@<uid>` 起來後 spawn systemd-executor 失敗（journal:
+  `Failed to spawn executor: Device or resource busy`），**不是建置失敗**。**要 full
+  `wsl --shutdown`（不是 `--terminate`）**——後者只停單一 distro、留 VM 層狀態清不掉，
+  full shutdown 重置整個 VM 才行。之後乾淨 session `user@` active、rootless podman.socket
+  自動起。（verify.sh 的 settle 迴圈只是等 is-system-running 安定；socket 層的問題要
+  `wsl --shutdown`。）
 - **首次啟動仍跳 metrics 提問**：確認 provision 寫了 consent 檔
   （`~/.config/ubuntu-insights/wsl_setup-consent.toml` = `consent_state = false`）。
 - **軟體層（podman / compose / go / netavark / registries…）的問題** → 見

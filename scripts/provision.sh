@@ -42,7 +42,10 @@ apt-get install -y git make ansible-core python3 ca-certificates curl
 # 至少要有 wsl_setup 這個 source；linux / ubuntu_release_upgrader 一併關掉月度回報。
 log "OOBE metrics opt-out（consent=false）"
 home="$(getent passwd "${BS_USER}" | cut -d: -f6)"
-install -d -o "${BS_USER}" -g "${BS_USER}" -m 0755 "${home}/.config/ubuntu-insights"
+# 用 runuser 以 user 身分建目錄，確保連 ~/.config 這層中間目錄都是 user 所有。
+# （root 的 `install -d a/b` 會把中間的 a 建成 root，之後 podman / ansible 要在
+#   ~/.config 下動東西會 permission denied 或警告。）
+runuser -u "${BS_USER}" -- mkdir -p "${home}/.config/ubuntu-insights"
 for src in linux wsl_setup ubuntu_release_upgrader; do
   f="${home}/.config/ubuntu-insights/${src}-consent.toml"
   printf 'consent_state = false\n' > "$f"
