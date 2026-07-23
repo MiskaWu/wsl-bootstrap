@@ -101,61 +101,24 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # ===========================================================================
-# Phase 1: 系統 + user + wsl.conf → shutdown
+# Provision (root): 系統 + user + wsl.conf + baseline + OOBE opt-out → shutdown
+# ---------------------------------------------------------------------------
+# 這是唯一的一支 bash phase。軟體工作環境（podman/go/claude/toolchain）不在這裡，
+# 交給獨立的 dev-env-ansible（在 distro 內本機 make apply）。
 # ===========================================================================
-Invoke-Wsl -Script (Get-Script 'phase1-system.sh') -AsUser 'root' -Label 'phase1-system' `
+Invoke-Wsl -Script (Get-Script 'provision.sh') -AsUser 'root' -Label 'provision' `
     -EnvVars @{ BS_USER = $User }
 
-Info "wsl --shutdown（讓 systemd / default user 生效）"
+Info "wsl --shutdown（讓 systemd / 預設 user 生效）"
 wsl.exe --shutdown
 Start-Sleep -Seconds 3
 
 # ===========================================================================
-# Phase 2: runtime + baseline → terminate（讓 docker group 生效）
-# ===========================================================================
-Invoke-Wsl -Script (Get-Script 'phase2-runtime.sh') -AsUser 'root' -Label 'phase2-runtime' `
-    -EnvVars @{
-        BS_USER         = $User
-        BS_RUNTIME      = $Runtime
-        BS_COMPOSE_SHIM = ([string]$ComposeShim).ToLower()
-    }
-
-Info "wsl --terminate $Distro（讓 group 變更生效）"
-wsl.exe --terminate $Distro
-Start-Sleep -Seconds 2
-
-# ===========================================================================
-# Phase 3: user-level toolchain
-# ===========================================================================
-$sshScopes = ($SSHKeyScopes -join ',')
-# SSH key 檔名前綴從 distro 名推導（去掉非英數字元），這樣改 $Distro 就一次到位，
-# 不會留下寫死的舊名字。例：'dev' → 'dev'、'miskawu-dev' → 'miskawudev'。
-$sshTag = ($Distro -replace '[^A-Za-z0-9]','')
-Invoke-Wsl -Script (Get-Script 'phase3-user.sh') -AsUser $User -Label 'phase3-user' `
-    -EnvVars @{
-        BS_RUNTIME        = $Runtime
-        BS_COMPOSE_SHIM   = ([string]$ComposeShim).ToLower()
-        BS_GO_VERSION     = $GoVersion
-        BS_INSTALL_NODE   = ([string]$InstallNode).ToLower()
-        BS_NODE_VERSION   = $NodeVersion
-        BS_INSTALL_PYTHON = ([string]$InstallPython).ToLower()
-        BS_INSTALL_CLIENTS= ([string]$InstallClientTools).ToLower()
-        BS_GEN_SSH        = ([string]$GenerateSSHKey).ToLower()
-        BS_SSH_SCOPES     = $sshScopes
-        BS_SSH_COMMENT    = $SSHKeyComment
-        BS_SSH_TAG        = $sshTag
-    }
-
-# ===========================================================================
-# 收尾 terminate：讓使用者第一次進去是乾淨的 session
+# 收尾 terminate：讓第一次進入是乾淨 session
 # ---------------------------------------------------------------------------
-# phase3 跑完的當下，user@1000.service 常處在 failed 狀態（`systemctl --user`
-# 連不上、podman.socket 沒在跑、is-system-running 是 degraded）——phase3 過程中
-# 反覆以 root/user 身分開關 session 會撞出 systemd 的 race。
-# 這不是 phase3 沒做好：podman.socket 在 phase3 當下確實 enable 成功了（journal
-# 看得到 "Listening on podman.socket"），是之後 user manager 才崩。
-# 一次 terminate 就全部恢復（實測 running / active / socket 存在）。不做的話，
-# 使用者跑完馬上驗證會看到一片失敗，卻其實只是需要重啟。
+# 第一次啟動時 systemd 的 user session 可能短暫 cold-start race（is-system-running
+# 一瞬間 degraded），terminate 重進即恢復。先 terminate 一次，使用者第一次 wsl -d
+# 進去就是乾淨的。
 # ===========================================================================
 Info "wsl --terminate $Distro（收尾，確保第一次進入是乾淨 session）"
 wsl.exe --terminate $Distro
@@ -175,5 +138,18 @@ if ($UnregisterOld -and $OldDistroName) {
     }
 }
 
-Info "完成！ 進入環境:  wsl -d $Distro"
-Info "接著跑 phase3 印出的『手動收尾清單』。"
+# ===========================================================================
+# 收尾訊息：bring-up 到此為止，工作環境交給 dev-env-ansible
+# ===========================================================================
+$envRepoHint = if ($EnvRepo) { $EnvRepo } else { '<dev-env-ansible repo URL>' }
+Info "Bring-up 完成！distro '$Distro' 已就緒：systemd + 預設 user + git/make/ansible。"
+Info ""
+Info "工作環境（podman / go / claude / toolchain）由獨立的 dev-env-ansible 負責，"
+Info "在 distro 內本機 make apply。進去後："
+Info ""
+Info "  wsl -d $Distro"
+Info "  git clone $envRepoHint ~/projects/dev-env-ansible"
+Info "  cd ~/projects/dev-env-ansible && make check   # 預覽會裝什麼"
+Info "  make apply                                     # 套用"
+Info ""
+Info "再手動：claude（首次 OAuth）、git config --global user.name/email、貼 SSH 公鑰。"
