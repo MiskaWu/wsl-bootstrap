@@ -1,113 +1,107 @@
 # wsl-bootstrap
 
-Config-driven, unattended **bring-up** of a clean Ubuntu WSL2 distro on Windows —
-just enough to hand off to Ansible.
+Config 驅動、無人值守的 WSL2 distro **bring-up** 工具 —— 只把 distro 帶到「可以交給
+Ansible 接手」的狀態。
 
-One config, one command, walk away. Produces a fresh Ubuntu 26.04 WSL2 distro with
-systemd, your user, passwordless sudo, a baseline (`git`, `make`, `ansible-core`),
-and Ubuntu's telemetry opted out — reachable and ready for configuration management.
+一份 config、一道指令，跑完走人。產出一個乾淨的 Ubuntu 26.04 WSL2 distro，內含 systemd、
+你的 user、免密碼 sudo、baseline（`git`、`make`、`ansible-core`），並關掉 Ubuntu 遙測 ——
+一台可連、可被組態管理的機器。
 
-The actual dev environment (Podman, Go, Claude Code, toolchain) is installed
-separately by **dev-env-ansible**, run locally on the box with `make apply`. Two
-repos on purpose: that Ansible role is host-agnostic and reusable on any Linux box,
-so it isn't tied to this WSL-specific bootstrap.
+真正的開發環境（Podman、Go、Claude Code、toolchain）由另一個獨立 repo **dev-env-ansible**
+負責，在機器上用 `make apply` 本機安裝。刻意拆成兩個 repo：那個 Ansible role 是
+host-agnostic、任何 Linux 都能用，不該綁死在這支 WSL 專用的 bootstrap。
 
-## Why split into two repos
+## 為什麼拆兩個 repo
 
-- **`wsl-bootstrap`** (this repo, Windows/PowerShell) does the parts only Windows
-  can do: create the distro, set the default user + systemd in `/etc/wsl.conf`, and
-  the VM restart that makes them take effect.
-- **`dev-env-ansible`** (separate repo, runs on the box) is the software environment
-  as an idempotent Ansible role: `make apply` to install, `make check` to preview
-  (dry-run diff), `make apply TAGS=node` to add one thing later — no tear-down/rebuild.
+- **`wsl-bootstrap`**（本 repo，Windows/PowerShell）做「只有 Windows 能做」的事：建
+  distro、在 `/etc/wsl.conf` 設預設 user + systemd、以及讓它們生效的 VM 重啟。
+- **`dev-env-ansible`**（獨立 repo，在機器上跑）是軟體環境，一個冪等的 Ansible role：
+  `make apply` 安裝、`make check` 預覽（乾跑 diff）、`make apply TAGS=node` 之後補裝單項
+  —— 不砍掉重建。
 
-## Requirements
+## 需求
 
-- Windows 11 (24H2+) or a WSL version that supports `wsl --install --name`
-- WSL2 enabled (`wsl --update` to be safe)
-- Run from PowerShell
+- Windows 11（24H2+）或支援 `wsl --install --name` 的 WSL 版本
+- 已啟用 WSL2（保險起見先 `wsl --update`）
+- 從 PowerShell 執行
 
-## Usage
+## 用法
 
 ```powershell
-cp config.example.ps1 config.ps1   # first time
-notepad config.ps1                 # set distro name + user
-.\bootstrap.ps1                    # unattended; restarts WSL twice internally
+cp config.example.ps1 config.ps1   # 首次
+notepad config.ps1                 # 設 distro 名 + user
+.\bootstrap.ps1                    # 無人值守；中途自動重啟 WSL 兩次
 ```
 
-Then, inside the distro, install the dev environment:
+接著進 distro 裝開發環境：
 
 ```bash
 wsl -d dev
 git clone <dev-env-ansible repo> ~/projects/dev-env-ansible
 cd ~/projects/dev-env-ansible
-make check    # preview what will be installed
-make apply    # podman, go, claude, toolchain
+make check    # 預覽會裝什麼
+make apply    # podman、go、claude、toolchain
 ```
 
-Verify the bring-up:
+驗證 bring-up：
 
 ```powershell
 wsl -d dev -u miskawu -- bash -l < scripts/verify.sh
 ```
 
-## What bring-up does (`scripts/provision.sh`, as root)
+## bring-up 做了什麼（`scripts/provision.sh`，root 身分）
 
-- Creates your user (`$User`) with passwordless `sudo`
-- Writes `/etc/wsl.conf`: systemd on, `$User` as default login, WSL-managed
-  `resolv.conf`, Windows PATH appended
+- 建立你的 user（`$User`）並給免密碼 `sudo`
+- 寫 `/etc/wsl.conf`：開 systemd、`$User` 為預設登入、WSL 管理 `resolv.conf`、附加
+  Windows PATH
 - `apt update && upgrade`
-- Installs baseline: `git`, `make`, `ansible-core`, `python3` — so the box can run
-  the Ansible role locally
-- Opts out of Ubuntu 26.04 telemetry: writes `~/.config/ubuntu-insights/*-consent.toml`
-  (`consent_state = false`), so first launch has no interactive metrics prompt
-- Creates `~/projects`
+- 裝 baseline：`git`、`make`、`ansible-core`、`python3` —— 讓機器能本機跑 Ansible role
+- 關掉 Ubuntu 26.04 遙測：寫 `~/.config/ubuntu-insights/*-consent.toml`
+  （`consent_state = false`），首次啟動不跳互動式 metrics 提問
+- 建立 `~/projects`
 
-Then two automatic WSL restarts (one for systemd/default-user to take effect, one so
-your first session is clean).
+之後自動重啟 WSL 兩次（一次讓 systemd／預設 user 生效，一次讓你第一次進去是乾淨 session）。
 
-## Config (`config.ps1`)
+## 設定（`config.ps1`）
 
-| Option | Default | Controls |
+| 選項 | 預設 | 控制 |
 |---|---|---|
-| `$Distro` | `dev` | WSL distro name (`wsl -d <name>`) |
-| `$UbuntuImage` | `Ubuntu-26.04` | source image (`wsl --list --online`) |
-| `$User` | `miskawu` | Linux login user created in the distro |
-| `$EnvRepo` | — | dev-env-ansible URL, shown in the finish message |
-| `$UnregisterOld` / `$OldDistroName` | `$false` / — | after a successful build, offer to remove a named old distro (asks for explicit confirmation) |
+| `$Distro` | `dev` | WSL distro 名（`wsl -d <名>`） |
+| `$UbuntuImage` | `Ubuntu-26.04` | 來源 image（`wsl --list --online`） |
+| `$User` | `miskawu` | distro 內建立的登入 user |
+| `$EnvRepo` | — | dev-env-ansible URL，收尾訊息會顯示 |
+| `$UnregisterOld` / `$OldDistroName` | `$false` / — | 建置成功後詢問是否移除指定的舊 distro（需明確確認） |
 
-Everything about the *software* environment (container runtime, Go version,
-Node/Python/clients, SSH keys) lives in `dev-env-ansible`'s `group_vars`, not here.
+軟體環境的一切（容器 runtime、Go 版本、Node/Python/clients、SSH keys）都在
+`dev-env-ansible` 的 `group_vars`，不在這裡。
 
-## Networking: default NAT, not mirrored
+## 網路：預設 NAT，不用 mirrored
 
-Kept on default WSL2 **NAT**. Windows reaches services in the distro — including
-rootless Podman container ports — at `localhost:<port>` with no forwarding, via
-`localhostForwarding` (on by default). Mirrored mode is deliberately avoided: as of
-2026 it has open bugs with rootless Podman (port-forwarding timeouts, `127.0.0.1`
-unreachable inside WSL) and it turns `localhostForwarding` off. If a separate LAN
-machine ever needs to reach the distro, use ProxyJump via the Windows OpenSSH server
-or Tailscale — not mirrored.
+維持預設 WSL2 **NAT**。Windows 靠 `localhostForwarding`（預設開）就能用 `localhost:<port>`
+連到 distro 內的服務 —— 包含 rootless Podman 容器 port —— 不用做 forward。刻意不用
+mirrored 模式：截至 2026 它對 rootless Podman 仍有 open bug（port-forward timeout、
+WSL 內 `127.0.0.1` 連不到），而且會關掉 `localhostForwarding`。若哪天需要別台 LAN 機器
+連進 distro，用 Windows OpenSSH 的 ProxyJump 或 Tailscale，不是 mirrored。
 
-## Layout
+## 檔案結構
 
 ```
 wsl-bootstrap/
-├── bootstrap.ps1          # PowerShell orchestrator (unattended)
-├── config.example.ps1     # copy to config.ps1
+├── bootstrap.ps1          # PowerShell orchestrator（無人值守）
+├── config.example.ps1     # 複製成 config.ps1
 └── scripts/
-    ├── provision.sh       # the single root bring-up phase
-    └── verify.sh          # post-run bring-up checks
+    ├── provision.sh       # 唯一的 root bring-up phase
+    └── verify.sh          # 建置後的 bring-up 檢查
 ```
 
-## Notes
+## 備註
 
-- `config.ps1` is gitignored.
-- Keep repos on the WSL filesystem (`~/`), not `/mnt/c/` — for I/O, and because
-  Ansible ignores `ansible.cfg` in the world-writable `/mnt/c`.
-- After bring-up: clone dev-env-ansible + `make apply`, then `claude` (first-run
-  OAuth) and `git config --global user.name/email`.
+- `config.ps1` 已 gitignore。
+- repo 放 WSL 檔案系統（`~/`），不要放 `/mnt/c/` —— I/O，而且 Ansible 會忽略
+  world-writable 的 `/mnt/c` 裡的 `ansible.cfg`。
+- bring-up 之後：clone dev-env-ansible + `make apply`，然後 `claude`（首次 OAuth）與
+  `git config --global user.name/email`。
 
-## License
+## 授權
 
 MIT

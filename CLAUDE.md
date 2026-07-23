@@ -127,7 +127,7 @@ OOBE 偵測到有效 consent 檔就跳過提問、且覆蓋 Windows registry 預
 - **Log：** `provision.sh` 用藍色 `log()`；PS 端 `Info`/`Warn`/`Die`。
 - **冪等性：** 重跑不爆不重複（建 user 前 `id` 檢查、consent 檔固定內容覆寫、`mkdir -p`、
   `install -d`）。新增步驟比照。
-- **註解、log、commit 訊息用繁體中文**，README 用英文（對外）。
+- **註解、log、commit 訊息、README 都用繁體中文**（2026-07 起 README 也改繁中）。
 - **不可逆操作要互動確認**，且要求輸入具體名稱而非 y/n（見 `$UnregisterOld` 區塊）。
 
 ## 怎麼驗證改動
