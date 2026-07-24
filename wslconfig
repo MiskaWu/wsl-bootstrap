@@ -15,8 +15,17 @@
 # we avoid non-ASCII in a file consumed by an external parser.
 
 [wsl2]
+# 32GB host: cap WSL at half, leaving 16GB for Windows. Comfortable for the
+# workload here (k3s + postgres/etcd/redis/nats + go/image builds, all personal
+# low-concurrency testing; idle ~2-4GB, active peak ~6-10GB). Bump to 20GB if
+# builds ever feel tight. NOTE: without autoMemoryReclaim (dropped — see below)
+# WSL holds memory up to this cap and only frees it on `wsl --shutdown`, so the
+# cap doubles as the safety net that stops WSL starving Windows.
 memory=16GB
-swap=16GB
+# OOM cushion, not "bigger is better". 8GB is ample for low-concurrency testing;
+# a larger swap just wastes swap.vhdx disk and invites thrashing (an OOM-killed
+# test container beats the whole box grinding on 16GB of swap).
+swap=8GB
 
 # --- networkingMode: mirrored -----------------------------------------------
 # Required so Windows can reach *container* ports. Measured on this machine,
