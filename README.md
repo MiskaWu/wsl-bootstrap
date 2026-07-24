@@ -88,13 +88,28 @@ wsl -d dev -u miskawu -- bash -l < scripts/verify.sh
 
 改 `.wslconfig` 要 `wsl --shutdown` 才生效，且影響機器上**所有** WSL2 distro。
 
-## 網路：預設 NAT，不用 mirrored
+## 網路：mirrored（實測後的必要選擇）
 
-維持預設 WSL2 **NAT**。Windows 靠 `localhostForwarding`（預設開）就能用 `localhost:<port>`
-連到 distro 內的服務 —— 包含 rootless Podman 容器 port —— 不用做 forward。刻意不用
-mirrored 模式：截至 2026 它對 rootless Podman 仍有 open bug（port-forward timeout、
-WSL 內 `127.0.0.1` 連不到），而且會關掉 `localhostForwarding`。若哪天需要別台 LAN 機器
-連進 distro，用 Windows OpenSSH 的 ProxyJump 或 Tailscale，不是 mirrored。
+用 `networkingMode=mirrored`（`.wslconfig` 的 `[wsl2]` 穩定區段）。**這是量測結論，不是
+預設值。** 2026-07 在本機實測（容器確認存活時測，並用「純 WSL 程序」當對照組）：
+
+| 模式 | Windows → 純 WSL 程序 port | Windows → rootless podman 容器 port |
+|---|---|---|
+| NAT（WSL 預設） | ✅ 通 | ❌ **不通** |
+| mirrored | ✅ 通 | ✅ **通** |
+
+`localhostForwarding` 只轉發 WSL init netns 裡的 listener，**不轉發 pasta 為 rootless
+容器發佈的 port**。而「從 Windows 直接用 `localhost:<port>` 使用 distro 內的服務、不做
+手動 forward」是這裡的硬需求 —— 只有 mirrored 做得到。
+
+**只用穩定區段**：`networkingMode` 本身在 `[wsl2]`；**不需要** `[experimental]` 的
+`hostAddressLoopback`。實測 `127.0.0.1` 路徑沒有它就通；它只額外打開「用本機 LAN IP 連」
+那條（實測沒開時為 `False`），一般開發用不到。
+
+**已知 mirrored 風險 —— 本機實測皆未發生**（WSL issue tracker，2026 仍開著）：
+`#13868`（WSL 內 `127.0.0.1` 連不到容器）→ 實測 `PONG`；
+`#13317`（容器約 3 分鐘後 timeout）→ 實測 4 分鐘仍存活且可連。
+`#14080`（Windows 更新靜默停用 mirrored）→ **WSL 更新後要重驗這三項**。
 
 ## 檔案結構
 

@@ -33,11 +33,24 @@ bootstrap。改軟體層去 `dev-env-ansible`，別在這裡加。
 - **單一 WSL2 distro 就是開發環境**，不做 per-project devcontainer。
 - **底座 Ubuntu 26.04**（Resolute Raccoon，podman 5.7；24.04 凍在 4.9.3，理由見
   dev-env-ansible / git 歷史）。
-- **網路留預設 NAT，不用 mirrored（2026-07 定案）。** Windows 靠 `localhostForwarding`
-  就能用 `localhost:<port>` 連 distro 內服務（含 rootless podman 容器 port），零 forward
-  （實測 Windows→容器 port 通）。mirrored 2026 仍有 rootless podman 的 open bug
-  （WSL #13317 port-forward ~3 分 timeout、#13868 `127.0.0.1` 連不到）且會**關掉**
-  `localhostForwarding`。要從 LAN 連，用 Windows OpenSSH 的 ProxyJump 或 Tailscale，不是 mirrored。
+- **網路用 `networkingMode=mirrored`（2026-07 實測定案）。**
+  **⚠️ 這條先前寫反過——原本記「留預設 NAT 就夠、實測 Windows→容器 port 通」，但那次
+  「實測」是在 mirrored 開著時做的，功勞被錯算給 NAT。** 關掉 mirrored 後重測（容器確認
+  存活、並用純 WSL 程序作對照組）：
+
+  | 模式 | Windows → 純 WSL 程序 | Windows → rootless podman 容器 port |
+  |---|---|---|
+  | NAT | ✅ | ❌ **不通** |
+  | mirrored | ✅ | ✅ |
+
+  `localhostForwarding` 只轉 WSL init netns 裡的 listener，**不轉 pasta 為 rootless 容器
+  發佈的 port**。而「Windows 直接用 localhost 使用 distro 內服務、不做手動 forward」是硬
+  需求，所以 mirrored 必要。**只用 `[wsl2]` 的 `networkingMode`，不加 `[experimental]` 的
+  `hostAddressLoopback`**——實測 `127.0.0.1` 路徑不靠它（它只多開「用本機 LAN IP 連」那條）。
+  已知 mirrored 風險（#13868 WSL 內 127.0.0.1 連不到、#13317 容器 ~3 分 timeout）**本機
+  實測皆未發生**（4 分鐘仍活）；#14080 是 Windows 更新會靜默停用 mirrored，**WSL 更新後
+  要重驗這三項**。
+  教訓：**跨 Windows/WSL 邊界的網路結論，一定要確認當下的 `networkingMode` 再歸因。**
 - **全域 `.wslconfig` 由本 repo 管理（2026-07 起）。** repo 裡的 `wslconfig` 是 source of
   truth，`bootstrap.ps1` 依 `$DeployWslConfig` 部署到 `%USERPROFILE%\.wslconfig`（內容不同
   才寫、覆蓋前備份）。起因：原本那份 `.wslconfig` 標的 source of truth
