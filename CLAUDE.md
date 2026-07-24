@@ -38,6 +38,15 @@ bootstrap。改軟體層去 `dev-env-ansible`，別在這裡加。
   （實測 Windows→容器 port 通）。mirrored 2026 仍有 rootless podman 的 open bug
   （WSL #13317 port-forward ~3 分 timeout、#13868 `127.0.0.1` 連不到）且會**關掉**
   `localhostForwarding`。要從 LAN 連，用 Windows OpenSSH 的 ProxyJump 或 Tailscale，不是 mirrored。
+- **全域 `.wslconfig` 由本 repo 管理（2026-07 起）。** repo 裡的 `wslconfig` 是 source of
+  truth，`bootstrap.ps1` 依 `$DeployWslConfig` 部署到 `%USERPROFILE%\.wslconfig`（內容不同
+  才寫、覆蓋前備份）。起因：原本那份 `.wslconfig` 標的 source of truth
+  （`infra/windows/wslconfig`）**根本不存在**，部署副本是唯一一份、誤刪就沒了。
+  **政策：只用穩定設定，不碰 `[experimental]`。** 該區段照定義就不穩定。歷史教訓：
+  `autoMemoryReclaim` / `sparseVhd` 曾被誤放在 `[wsl2]`，WSL 直接忽略並印 unknown key
+  警告 —— 等於**從未生效**，所以「修好它」不是回復原狀，是引入沒驗證過的行為。
+  寫檔要用 .NET `WriteAllText` + 無 BOM UTF8：PS 5.1 的 `Set-Content -Encoding UTF8`
+  會帶 BOM，而這個檔是 WSL 自己解析的。
 - **Ansible 本機 `make apply`**，不走 control node SSH → 所以 bring-up **不裝 sshd**。
 - **設定走 config 檔、執行零互動**（唯一例外：不可逆操作的確認，如 unregister distro）。
 - **pipe-to-shell（`curl … | bash`）已接受**（infra 工程師知道風險，別擅自改 checksum）。

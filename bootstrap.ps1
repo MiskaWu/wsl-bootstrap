@@ -91,6 +91,36 @@ function Invoke-Wsl {
 }
 
 # ===========================================================================
+# 部署 .wslconfig（全域設定，影響機器上所有 distro，不只這裡建的）
+# ---------------------------------------------------------------------------
+# repo 裡的 `wslconfig` 是 source of truth。這樣設定才進版控——2026-07 發現原本
+# 的 .wslconfig 標的 source of truth（infra/windows/wslconfig）根本不存在，那份
+# 部署副本是唯一一份，誤刪就沒了。
+# 覆蓋前先備份既有檔，不弄丟手改的內容。改動要 wsl --shutdown 才生效，本腳本
+# 後面本來就會 shutdown。
+# 用 .NET WriteAllText 而不是 `Set-Content -Encoding UTF8`：PS 5.1 的 UTF8 會帶
+# BOM，而這個檔是給 WSL 自己解析的，別冒 BOM 的險。
+# ===========================================================================
+if ($DeployWslConfig) {
+    $srcCfg = Join-Path $PSScriptRoot 'wslconfig'
+    $dstCfg = Join-Path $env:USERPROFILE '.wslconfig'
+    if (-not (Test-Path $srcCfg)) { Die "缺少 $srcCfg" }
+    $newCfg = Get-Content $srcCfg -Raw -Encoding UTF8
+    $oldCfg = if (Test-Path $dstCfg) { Get-Content $dstCfg -Raw -Encoding UTF8 } else { $null }
+    if ($oldCfg -ne $newCfg) {
+        if ($null -ne $oldCfg) {
+            $bak = "$dstCfg.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+            Copy-Item $dstCfg $bak
+            Warn "既有 .wslconfig 與 repo 版本不同，已備份到 $bak"
+        }
+        [System.IO.File]::WriteAllText($dstCfg, $newCfg, [System.Text.UTF8Encoding]::new($false))
+        Info "已部署 .wslconfig → $dstCfg"
+    } else {
+        Info ".wslconfig 已與 repo 一致，略過"
+    }
+}
+
+# ===========================================================================
 # Phase 0: 建 distro
 # ===========================================================================
 Info "Phase 0 — 安裝 $UbuntuImage 為 '$Distro'"

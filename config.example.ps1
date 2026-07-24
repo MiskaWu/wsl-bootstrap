@@ -17,6 +17,12 @@ $Distro      = 'dev'            # distro 名（wsl -d <名>）
 $UbuntuImage = 'Ubuntu-26.04'
 $User        = 'miskawu'        # distro 內登入 user（建議對齊 Windows 帳號）
 
+# ---- .wslconfig（全域 WSL2 設定）-------------------------------------------
+# $true 會把 repo 裡的 `wslconfig` 部署到 %USERPROFILE%\.wslconfig（覆蓋前備份）。
+# 這是讓全域設定進版控、不會誤刪就消失的方式。內容與理由見該檔案。
+# 注意：它影響機器上**所有** WSL2 distro，且要 wsl --shutdown 才生效。
+$DeployWslConfig = $true
+
 # ---- 工作環境 repo ---------------------------------------------------------
 # 只用在收尾訊息，提示你 clone 哪個 repo 去 make apply。pin 版本就把 URL 換成帶
 # tag/branch 的 clone（見 dev-env-ansible README）。不用 submodule。

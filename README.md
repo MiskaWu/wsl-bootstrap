@@ -70,10 +70,23 @@ wsl -d dev -u miskawu -- bash -l < scripts/verify.sh
 | `$UbuntuImage` | `Ubuntu-26.04` | 來源 image（`wsl --list --online`） |
 | `$User` | `miskawu` | distro 內建立的登入 user |
 | `$EnvRepo` | — | dev-env-ansible URL，收尾訊息會顯示 |
+| `$DeployWslConfig` | `$true` | 把 repo 的 `wslconfig` 部署到 `%USERPROFILE%\.wslconfig`（內容不同才動，覆蓋前備份） |
 | `$UnregisterOld` / `$OldDistroName` | `$false` / — | 建置成功後詢問是否移除指定的舊 distro（需明確確認） |
 
 軟體環境的一切（容器 runtime、Go 版本、Node/Python/clients、SSH keys）都在
 `dev-env-ansible` 的 `group_vars`，不在這裡。
+
+## 全域 `.wslconfig` 也由本 repo 管理
+
+`wslconfig` 是 source of truth，`bootstrap.ps1` 會部署到 `%USERPROFILE%\.wslconfig`
+（內容不同才寫，覆蓋前備份成 `.wslconfig.bak-<時間>`）。這樣全域設定才進版控 ——
+2026-07 發現原本那份部署副本標的 source of truth 根本不存在，它是唯一一份，誤刪就沒了。
+
+**政策：只用穩定設定，不碰 `[experimental]`。** 那個區段照定義就不穩定；寧可要一台無聊
+但可靠的機器。（歷史：`autoMemoryReclaim` / `sparseVhd` 曾被誤放在 `[wsl2]`，WSL 直接
+忽略並警告 unknown key，等於從未生效。）
+
+改 `.wslconfig` 要 `wsl --shutdown` 才生效，且影響機器上**所有** WSL2 distro。
 
 ## 網路：預設 NAT，不用 mirrored
 
@@ -89,6 +102,7 @@ WSL 內 `127.0.0.1` 連不到），而且會關掉 `localhostForwarding`。若�
 wsl-bootstrap/
 ├── bootstrap.ps1          # PowerShell orchestrator（無人值守）
 ├── config.example.ps1     # 複製成 config.ps1
+├── wslconfig              # 全域 .wslconfig 的 source of truth（部署到 %USERPROFILE%）
 └── scripts/
     ├── provision.sh       # 唯一的 root bring-up phase
     └── verify.sh          # 建置後的 bring-up 檢查

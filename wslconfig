@@ -1,0 +1,48 @@
+# WSL2 global configuration — source of truth, managed by wsl-bootstrap.
+# Deployed to %USERPROFILE%\.wslconfig by bootstrap.ps1 ($DeployWslConfig).
+#
+# Do NOT hand-edit C:\Users\<user>\.wslconfig — bootstrap overwrites it from
+# this file (backing the old one up to .wslconfig.bak-<timestamp> first).
+# Edit here, commit, then re-run bootstrap (or copy manually).
+#
+# Changes need `wsl --shutdown` to take effect, and they affect EVERY WSL2
+# distro on the machine, not just the one this repo builds.
+#
+# POLICY: stable settings only. No [experimental] keys — that section is, by
+# definition, not stable, and we would rather have a boring box than chase
+# WSL preview features.
+#
+# Comments kept in English on purpose: this file is parsed by WSL itself, so
+# we avoid non-ASCII in a file consumed by an external parser.
+
+[wsl2]
+memory=16GB
+swap=16GB
+
+# --- networkingMode: intentionally NOT set -> WSL default (NAT) --------------
+# NAT is the stable, supported default. Windows still reaches services inside
+# the distro — including rootless Podman published container ports — at
+# localhost:<port> with no forwarding, via localhostForwarding (on by default).
+#
+# We deliberately do NOT use mirrored:
+#   - Microsoft still labels mirrored "under development" (2026); NAT remains
+#     the default.
+#   - Open bugs with rootless Podman: WSL #13317 (containers time out after
+#     ~3 min) and #13868 (127.0.0.1 unreachable inside WSL for podman/docker
+#     published ports). #14080: a Windows update silently disabled mirrored.
+#   - mirrored turns OFF localhostForwarding, i.e. it replaces the mechanism
+#     we actually rely on with a less-proven one.
+# Trade-off accepted: no LAN reachability of the distro, no IPv6, weaker VPN
+# and multicast support. If a LAN machine ever needs in, use ProxyJump through
+# the Windows OpenSSH server or Tailscale — not mirrored.
+#
+# --- Dropped [experimental] keys --------------------------------------------
+# autoMemoryReclaim / sparseVhd / hostAddressLoopback were previously present.
+# All three live in [experimental]; two of them (autoMemoryReclaim, sparseVhd)
+# had additionally been mis-placed under [wsl2], so WSL ignored them with
+# "unknown key" warnings and they had never actually taken effect.
+# They are dropped rather than fixed: stable settings only.
+#   - autoMemoryReclaim: also documented (WSL devblogs) to be able to break a
+#     docker daemon running as a service inside WSL.
+#   - sparseVhd: only affects newly created VHDs anyway.
+#   - hostAddressLoopback: mirrored-only, moot once mirrored is off.
