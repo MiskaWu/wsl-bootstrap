@@ -5,20 +5,27 @@
 Config-driven、無人值守的 WSL2 distro **bring-up** 工具。一個 PowerShell orchestrator
 （`bootstrap.ps1`）在 Windows 上跑，把**一支** bash 腳本（`scripts/provision.sh`）pipe
 進新建的 WSL distro，中途自動重啟 WSL 兩次。產出：一個乾淨的 Ubuntu 26.04 distro，有
-systemd、預設 user、免密碼 sudo、baseline（**只有 git + make**）、Ubuntu 遙測已
-opt-out —— 一台「clone 組態管理 repo、`make` 起手就能接手」的機器。
+systemd、預設 user、免密碼 sudo、baseline（**git + make + openssh-client**）、**已設好的
+git 身分與 SSH keys**、Ubuntu 遙測已 opt-out —— 一台「裝完就 git-ready、clone 組態管理 repo
+`make` 起手就能接手」的機器。
 
 **軟體工作環境（Podman / Go / Claude Code / toolchain）不在這裡** —— 由獨立的
 `dev-env-ansible` repo 負責，在 distro 內 clone + `make init`。拆兩個 repo 是刻意的：那個
 Ansible role 是 host-agnostic、可跨任何 Linux host 用，不該綁在這支 WSL-specific 的
 bootstrap。改軟體層去 `dev-env-ansible`，別在這裡加。
 
-**baseline 為什麼只有 git + make（2026-07 收斂）：** bring-up 不該預設你用哪套組態管理，
-所以只給「clone repo（git）+ 跑它的操作入口（make）」的最小集。連 `ansible` 都不裝 ——
+**baseline 為什麼是 git + make + openssh（2026-07 收斂）：** bring-up 不該預設你用哪套組態
+管理，所以只給「clone repo（git）+ 跑它的操作入口（make）」的最小集。連 `ansible` 都不裝 ——
 組態管理 repo 的 Makefile 會在需要時自己 `apt install ansible-core`（不能用 ansible 裝
 ansible，這層由 make 補）。`make` 一定要在 baseline：它是 repo 的入口，而 make 指令本身
-得先存在才跑得起來（第二層雞生蛋）。這也讓整套跨平台通用 —— 非 WSL host 只要有 git+make
-就能 clone + `make init`。
+得先存在才跑得起來（第二層雞生蛋）。`openssh-client` 是因為 bring-up 現在會 `ssh-keygen`、
+且 git over ssh 要用。這也讓整套跨平台通用 —— 非 WSL host 只要有 git+make 就能 clone +
+`make init`。
+
+**git 身分與 SSH keys 為什麼放 bring-up（而非軟體 repo）：** 它們是「一台個人機」的一部分，
+不是軟體工作環境；而且 **SSH key 得先在，才能 clone 私有的組態管理 repo**（雞生蛋）。放在
+bring-up，裝完 distro 就 git-ready、公鑰已印出可貼平台。生成在這裡，但**貼到 GitHub/GitLab
+是手動**（不自動佈署平台憑證）。設定在 `config.ps1`（`$GitName`/`$GitEmail`/`$SshKey*`）。
 
 **這不是會長期跑的服務，是一次性建置腳本。**「正確」= 在乾淨 Windows 上從零跑到底、
 零互動、結束後 `scripts/verify.sh` 全過。
@@ -71,13 +78,16 @@ ansible，這層由 make 補）。`make` 一定要在 baseline：它是 repo 的
 - **設定走 config 檔、執行零互動**（唯一例外：不可逆操作的確認，如 unregister distro）。
 - **pipe-to-shell（`curl … | bash`）已接受**（infra 工程師知道風險，別擅自改 checksum）。
 - **免密碼 sudo 刻意**（開發機）。
-- **Claude Code 認證與 SSH 公鑰佈署保持手動**，bootstrap 只印清單，不要自動化。
+- **SSH keys 由 bring-up 生成**（provision.sh 的 `ssh-keygen`，per scope，無 passphrase），
+  但**貼公鑰到 GitHub/GitLab 這一步保持手動**（bootstrap 只印公鑰、不自動佈署，不把平台憑證
+  帶進自動化）。**Claude Code 認證也保持手動**（瀏覽器 OAuth）。生成 ≠ 佈署：生成在這裡，
+  佈署（貼平台）是你的事。
 
 ## 流程結構（為什麼有重啟）
 
 ```
 Phase 0   (PS)     wsl --install --no-launch
-provision (root)   apt + 建 user + wsl.conf + baseline(git+make) + OOBE opt-out
+provision (root)   apt + 建 user + wsl.conf + baseline(git+make+openssh) + git身分 + SSHkeys + OOBE opt-out
           ↓ wsl --shutdown      ← systemd 與 default user 只在 VM 重啟後才生效
           ↓ wsl --terminate     ← 收尾，讓第一次進入是乾淨 session（避 user-session race）
 ```
@@ -88,12 +98,15 @@ provision (root)   apt + 建 user + wsl.conf + baseline(git+make) + OOBE opt-out
 ## 設定如何流動
 
 `config.ps1`（gitignored）→ `bootstrap.ps1` 讀成 PS 變數 → `Invoke-Wsl` 以 `BS_*` 環境
-變數前綴注入 bash → `provision.sh` 讀 `${BS_XXX}`。目前只傳 `BS_USER`。
+變數前綴注入 bash → `provision.sh` 讀 `${BS_XXX}`。目前傳：`BS_USER`、`BS_GIT_NAME`、
+`BS_GIT_EMAIL`、`BS_SSH_KEY_TAG`、`BS_SSH_KEY_COMMENT`、`BS_SSH_KEY_SCOPES`（陣列以空白
+join 成字串，bash 端 `for scope in ${BS_SSH_KEY_SCOPES}` 迭代）。未定義的 config 變數在
+StrictMode-off 下是 `$null` → `[string]$null=''`，provision 對應步驟會略過，所以舊 config 不會壞。
 
-軟體層的設定（runtime、go 版本、Node/Python/clients 開關、SSH scopes）在
-`dev-env-ansible` 的 `group_vars`，**不在這裡**。新增 bring-up 設定項要改：
-`config.example.ps1`（+註解）、`bootstrap.ps1`（`-EnvVars`）、`provision.sh`（讀
-`BS_XXX`）、`README.md` 表格。
+軟體層的設定（runtime、go 版本、Node/Python/clients 開關）在 `dev-env-ansible`，**不在這裡**。
+但 **git 身分與 SSH keys 的設定在這裡**（`config.ps1`）—— 它們屬 bring-up（key 得先在才能
+clone 私有 repo）。新增 bring-up 設定項要改：`config.example.ps1`（+註解）、`config.ps1`、
+`bootstrap.ps1`（`-EnvVars`）、`provision.sh`（讀 `BS_XXX`）、`verify.sh`、`README.md` 表格。
 
 ## 已知地雷（PowerShell↔bash 邊界，全部 2026-07 踩過、已修）
 

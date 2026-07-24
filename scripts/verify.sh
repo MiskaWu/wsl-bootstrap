@@ -38,12 +38,18 @@ chk "wsl.conf"  'grep -h -E "systemd|default" /etc/wsl.conf | tr "\n" " "'
 # degraded 可接受（見 CLAUDE.md 排查），判字串不判 exit code。
 chk "systemd"   'st=$(systemctl is-system-running 2>&1); case "$st" in running) echo "$st";; degraded) echo "$st";; *) echo "$st"; false;; esac'
 
-echo "== baseline（git + make：clone 組態管理 repo + 用它的 Makefile 起手）=="
-# 刻意只有 git + make。ansible / python / 軟體全交給組態管理 repo 自己裝
+echo "== baseline（git + make + openssh：clone repo + Makefile 起手 + git/ssh）=="
+# 刻意只有這些 + 下面的 git 身分/keys。ansible / 軟體全交給組態管理 repo 自己裝
 # （Makefile 會在需要時補 ansible），所以這裡不驗那些。
-chk "git"       'git --version'
-chk "make"      'make --version | head -1'
-chk "projects"  'test -d "$HOME/projects" && echo "$HOME/projects"'
+chk "git"        'git --version'
+chk "make"       'make --version | head -1'
+chk "ssh-keygen" 'command -v ssh-keygen'
+chk "projects"   'test -d "$HOME/projects" && echo "$HOME/projects"'
+
+echo "== git-ready（身分 + SSH keys，bring-up 直接備好）=="
+chk "git.name"  'git config --global user.name'
+chk "git.email" 'git config --global user.email'
+chk "ssh-keys"  'for f in "$HOME"/.ssh/id_ed25519_*.pub; do [ -e "$f" ] && basename "$f"; done | tr "\n" " " | grep .'
 
 echo "== OOBE metrics opt-out =="
 chk "consent"   'f="$HOME/.config/ubuntu-insights/wsl_setup-consent.toml"; grep -q "consent_state = false" "$f" && echo "wsl_setup=false"'

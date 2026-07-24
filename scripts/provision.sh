@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Provision (root)：把乾淨的 Ubuntu WSL distro 帶到「可以 clone + make 起手」的狀態。
+# Provision (root)：把乾淨的 Ubuntu WSL distro 帶到「git-ready、可以 clone + make 起手」。
 #   - 建 user + NOPASSWD sudo
 #   - /etc/wsl.conf（systemd + 預設 user）
-#   - baseline：**只有 git + make**（clone 組態管理 repo + 用它的 Makefile 起手）
+#   - baseline：git + make + openssh-client（clone repo + Makefile 起手 + git over ssh）
+#   - git 身分（~/.gitconfig）與 SSH keys（每 scope 一把 ed25519）—— 裝完就 git-ready，
+#     能直接 commit、貼 key 到 GitHub/GitLab、clone 私有 repo
 #   - OOBE metrics opt-out（首次互動啟動不再跳提問）
 #
-# 其餘一切（ansible、podman、go、claude、toolchain…）**都不在這裡** —— 交給你的組態管理
-# repo 自己裝。連 ansible 都不在 baseline：那個 repo 的 Makefile 會在需要時自己
-# `apt install ansible-core`（不能用 ansible 裝 ansible，所以由 make 這層補）。
-# 為什麼 make 要在 baseline：make 是那個 repo 的操作入口，而 make 指令本身得先存在才跑得起
-# 來——這是第二層雞生蛋，所以 make（很小）留在 bring-up。bring-up 到「乾淨 distro + git + make」為止。
+# 軟體工作環境（ansible、podman、go、claude、toolchain…）**都不在這裡** —— 交給你的組態
+# 管理 repo 自己裝。連 ansible 都不在 baseline：那個 repo 的 Makefile 會在需要時自己
+# `apt install ansible-core`（不能用 ansible 裝 ansible，所以由 make 這層補）。make 要在
+# baseline 是因為它是那個 repo 的操作入口、指令本身得先存在（第二層雞生蛋）。
+# git 身分/keys 放這裡（不放軟體 repo）是刻意的：它們是「一台個人機」的一部分，且 key 得
+# 先在才能 clone 私有 repo —— host-agnostic 但屬於 bring-up。
 # 執行後需 `wsl --shutdown` 讓 systemd / 預設 user 生效。
 # =============================================================================
 set -euo pipefail
@@ -35,8 +38,8 @@ else
   log "user 已存在，略過"
 fi
 
-log "baseline：git make（clone 組態管理 repo + 用它的 Makefile 起手；其餘由該 repo 自己裝）"
-apt-get install -y git make
+log "baseline：git make openssh-client（clone repo + Makefile 起手 + git/ssh-keygen；其餘由該 repo 自己裝）"
+apt-get install -y git make openssh-client
 
 # OOBE metrics opt-out（Ubuntu 26.04 的 ubuntu-insights）。
 # 首次互動啟動時 wsl-setup 會問「opt-in platform metrics?」——這違反零互動。
@@ -71,8 +74,43 @@ generateResolvConf=true
 appendWindowsPath=true
 EOF
 
-# 給 dev-env-ansible 一個落腳處（之後 clone 到這，在此 make apply）。
+# 給組態管理 repo 一個落腳處（之後 clone 到這，在此 make apply）。
 log "建立 ~/projects"
 install -d -o "${BS_USER}" -g "${BS_USER}" -m 0755 "${home}/projects"
+
+# ---- git 身分（設在 user 的 global config；未給就略過）----------------------
+if [ -n "${BS_GIT_NAME:-}" ] && [ -n "${BS_GIT_EMAIL:-}" ]; then
+  log "git 身分：${BS_GIT_NAME} <${BS_GIT_EMAIL}>"
+  runuser -u "${BS_USER}" -- git config --global user.name  "${BS_GIT_NAME}"
+  runuser -u "${BS_USER}" -- git config --global user.email "${BS_GIT_EMAIL}"
+else
+  log "未設 BS_GIT_NAME/BS_GIT_EMAIL，略過 git 身分"
+fi
+
+# ---- SSH keys（每個 scope 一把 ed25519，無 passphrase；冪等：已存在跳過）------
+# 生成後印出公鑰，讓你裝完就能貼到 GitHub/GitLab、clone 私有 repo。
+if [ -n "${BS_SSH_KEY_SCOPES:-}" ]; then
+  tag="${BS_SSH_KEY_TAG:-dev}"
+  comment="${BS_SSH_KEY_COMMENT:-${BS_USER}@$(hostname)}"
+  today="$(date +%F)"
+  runuser -u "${BS_USER}" -- install -d -m 0700 "${home}/.ssh"
+  for scope in ${BS_SSH_KEY_SCOPES}; do
+    key="${home}/.ssh/id_ed25519_${tag}_${scope}"
+    if [ -f "$key" ]; then
+      log "SSH key 已存在，略過：$(basename "$key")"
+    else
+      log "產生 SSH key：$(basename "$key")"
+      runuser -u "${BS_USER}" -- ssh-keygen -t ed25519 -N '' \
+        -C "${comment}-${scope} ${today}" -f "$key"
+    fi
+  done
+  log "SSH 公鑰（貼到 GitHub/GitLab）："
+  for scope in ${BS_SSH_KEY_SCOPES}; do
+    pub="${home}/.ssh/id_ed25519_${tag}_${scope}.pub"
+    [ -f "$pub" ] && printf '  %s\n' "$(cat "$pub")"
+  done
+else
+  log "未設 BS_SSH_KEY_SCOPES，略過 SSH keys"
+fi
 
 log "provision 完成 —— 需要 wsl --shutdown"

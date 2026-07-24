@@ -4,8 +4,8 @@ Config 驅動、無人值守的 WSL2 distro **bring-up** 工具 —— 只把 di
 你的組態管理 repo、用 `make` 起手」的狀態。
 
 一份 config、一道指令，跑完走人。產出一個乾淨的 Ubuntu 26.04 WSL2 distro，內含 systemd、
-你的 user、免密碼 sudo、baseline（**只有 `git` + `make`**），並關掉 Ubuntu 遙測 ——
-一台乾淨、可交給任何組態管理接手的機器。
+你的 user、免密碼 sudo、baseline（`git` + `make` + `openssh-client`）、**設好的 git 身分與
+SSH keys**，並關掉 Ubuntu 遙測 —— 一台裝完就 git-ready、可交給任何組態管理接手的機器。
 
 真正的開發環境（Podman、Go、Claude Code、toolchain）由另一個獨立 repo **dev-env-ansible**
 負責：在機器上 clone 它、`make init` 一路裝好。刻意拆成兩個 repo：那個 role 是
@@ -30,21 +30,22 @@ host-agnostic、任何 Linux 都能用，不該綁死在這支 WSL 專用的 boo
 
 ```powershell
 cp config.example.ps1 config.ps1   # 首次
-notepad config.ps1                 # 設 distro 名 + user
+notepad config.ps1                 # 設 distro / user / git 身分 / SSH key scopes
 .\bootstrap.ps1                    # 無人值守；中途自動重啟 WSL 兩次
 ```
 
-接著進 distro，clone 你的組態管理 repo，用它的 Makefile 起手：
+bootstrap 會在收尾印出 SSH 公鑰 —— 貼到 GitHub/GitLab 後就能 clone 私有 repo。接著進 distro，
+clone 你的組態管理 repo，用它的 Makefile 起手：
 
 ```bash
 wsl -d dev
 git clone <你的 dev-env-ansible repo> ~/projects/dev-env-ansible
 cd ~/projects/dev-env-ansible
-make init     # 自己補 ansible → 裝軟體 → 印出要貼 GitHub 的公鑰 → 印收尾清單
+make init     # 自己補 ansible → 裝軟體 → 印收尾清單
 ```
 
-（`make init` = `make apply` + `make ssh-keys`；只想預覽用 `make check`。baseline 沒有
-`ansible`，Makefile 第一次跑會自己 `apt install ansible-core`。）
+（baseline 沒有 `ansible`，Makefile 第一次跑會自己 `apt install ansible-core`；只想預覽用
+`make check`。git 身分與 SSH keys 已在 bring-up 備好，不用再設。）
 
 驗證 bring-up：
 
@@ -58,8 +59,11 @@ wsl -d dev -u miskawu -- bash -l < scripts/verify.sh
 - 寫 `/etc/wsl.conf`：開 systemd、`$User` 為預設登入、WSL 管理 `resolv.conf`、附加
   Windows PATH
 - `apt update && upgrade`
-- 裝 baseline：**只有 `git` + `make`** —— 剛好夠 clone 組態管理 repo 並用它的 Makefile
-  起手（連 `ansible` 都不裝，交給那個 repo 的 Makefile 自己補）
+- 裝 baseline：`git` + `make` + `openssh-client` —— clone 組態管理 repo、用它的 Makefile
+  起手、git over ssh（連 `ansible` 都不裝，交給那個 repo 的 Makefile 自己補）
+- 設 git 身分：`$GitName` / `$GitEmail` 寫進 user 的 `~/.gitconfig`（留空則略過）
+- 生成 SSH keys：每個 `$SshKeyScopes` 一把 ed25519（無 passphrase），並**印出公鑰**供你貼
+  GitHub/GitLab —— 裝完就能 clone 私有 repo（冪等：key 已存在就跳過）
 - 關掉 Ubuntu 26.04 遙測：寫 `~/.config/ubuntu-insights/*-consent.toml`
   （`consent_state = false`），首次啟動不跳互動式 metrics 提問
 - 建立 `~/projects`
@@ -74,10 +78,14 @@ wsl -d dev -u miskawu -- bash -l < scripts/verify.sh
 | `$UbuntuImage` | `Ubuntu-26.04` | 來源 image（`wsl --list --online`） |
 | `$User` | `miskawu` | distro 內建立的登入 user |
 | `$DeployWslConfig` | `$true` | 把 repo 的 `wslconfig` 部署到 `%USERPROFILE%\.wslconfig`（內容不同才動，覆蓋前備份） |
+| `$GitName` / `$GitEmail` | `Your Name` / `you@example.com` | 寫進 user 的 `~/.gitconfig`（兩個都留空則略過） |
+| `$SshKeyTag` | `dev` | SSH key 檔名前綴 `id_ed25519_<Tag>_<scope>` |
+| `$SshKeyComment` | `you@host` | key 註解基底（接上 `-<scope>` 與生成日期） |
+| `$SshKeyScopes` | `@('github','gitlab')` | 為哪些平台各產一把 key（`@()` 則不產） |
 | `$UnregisterOld` / `$OldDistroName` | `$false` / — | 建置成功後詢問是否移除指定的舊 distro（需明確確認） |
 
-軟體環境的一切（容器 runtime、Go 版本、Node/Python/clients、SSH keys）都在
-`dev-env-ansible` 的 `group_vars`，不在這裡。
+軟體環境的一切（容器 runtime、Go 版本、Node/Python/clients）在 `dev-env-ansible`，不在這裡。
+git 身分與 SSH keys 則相反 —— 在**這裡**（bring-up 就備好，key 得先在才能 clone 私有 repo）。
 
 ## 全域 `.wslconfig` 也由本 repo 管理
 
@@ -131,8 +139,8 @@ wsl-bootstrap/
 - `config.ps1` 已 gitignore。
 - repo 放 WSL 檔案系統（`~/`），不要放 `/mnt/c/` —— I/O，而且 Ansible 會忽略
   world-writable 的 `/mnt/c` 裡的 `ansible.cfg`。
-- bring-up 之後：clone 你的組態管理 repo + `make init`。收尾的手動步驟（把公鑰貼到
-  GitHub、`claude` 首次 OAuth）由 `make init` 印清單提示；`make git-config` 設 git 身分。
+- bring-up 之後：git 身分與 SSH keys 已備好。clone 你的組態管理 repo + `make init` 裝軟體；
+  收尾只剩把公鑰貼到 GitHub/GitLab、`claude` 首次 OAuth（都刻意保持手動）。
 
 ## 授權
 

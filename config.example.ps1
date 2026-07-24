@@ -23,6 +23,18 @@ $User        = 'miskawu'        # distro 內登入 user（建議對齊 Windows �
 # 注意：它影響機器上**所有** WSL2 distro，且要 wsl --shutdown 才生效。
 $DeployWslConfig = $true
 
+# ---- git 身分（bring-up 直接寫進 user 的 ~/.gitconfig）----------------------
+# 裝完就能直接 commit。兩個都留空則略過。
+$GitName  = 'Your Name'
+$GitEmail = 'you@example.com'
+
+# ---- SSH keys（bring-up 直接生成，裝完就能貼 GitHub/GitLab、clone 私有 repo）-
+# 每個 scope 一把 ed25519（無 passphrase）：~/.ssh/id_ed25519_<Tag>_<scope>。
+# 生成後 bootstrap 會把公鑰印出來。$SshKeyScopes 設 @() 則不產 key。
+$SshKeyTag     = 'dev'                    # 檔名前綴
+$SshKeyComment = 'you@host'               # 註解基底（會接上 -<scope> 與生成日期）
+$SshKeyScopes  = @('github', 'gitlab')    # 要為哪些平台各產一把
+
 # ---- 舊 distro 清理（謹慎！） ----------------------------------------------
 # $true 會在成功建好新 distro 後，詢問是否 unregister 指定的舊 distro。
 $UnregisterOld = $false
