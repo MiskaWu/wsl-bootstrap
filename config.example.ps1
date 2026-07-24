@@ -31,9 +31,14 @@ $GitEmail = 'you@example.com'
 # ---- SSH keys（bring-up 直接生成，裝完就能貼 GitHub/GitLab、clone 私有 repo）-
 # 每個 scope 一把 ed25519（無 passphrase）：~/.ssh/id_ed25519_<Tag>_<scope>。
 # 生成後 bootstrap 會把公鑰印出來。$SshKeyScopes 設 @() 則不產 key。
-$SshKeyTag     = 'dev'                    # 檔名前綴
-$SshKeyComment = 'you@host'               # 註解基底（會接上 -<scope> 與生成日期）
-$SshKeyScopes  = @('github', 'gitlab')    # 要為哪些平台各產一把
+#
+# $SshKeyComment 慣例（維護導向）：<user>@<distro>.wsl.<機器名>
+#   標出「誰、哪個 distro、在 WSL、哪台實體機」——日後在 server 的 authorized_keys / 稽核 /
+#   ssh-add -l 一眼認出、方便 revoke。<機器名> 要能唯一指到一台實體機（多台時別撞名）。
+#   provision 會再接上 -<scope> 與生成日期，完整如：you@dev.wsl.my-pc-github 2026-07-24。
+$SshKeyTag     = 'dev'                          # 檔名前綴
+$SshKeyComment = 'you@dev.wsl.your-machine'     # 見上：user@distro.wsl.機器
+$SshKeyScopes  = @('github', 'gitlab')          # 要為哪些平台各產一把
 
 # ---- 舊 distro 清理（謹慎！） ----------------------------------------------
 # $true 會在成功建好新 distro 後，詢問是否 unregister 指定的舊 distro。
