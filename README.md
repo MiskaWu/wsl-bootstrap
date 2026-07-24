@@ -69,7 +69,6 @@ wsl -d dev -u miskawu -- bash -l < scripts/verify.sh
 | `$Distro` | `dev` | WSL distro 名（`wsl -d <名>`） |
 | `$UbuntuImage` | `Ubuntu-26.04` | 來源 image（`wsl --list --online`） |
 | `$User` | `miskawu` | distro 內建立的登入 user |
-| `$EnvRepo` | — | dev-env-ansible URL，收尾訊息會顯示 |
 | `$DeployWslConfig` | `$true` | 把 repo 的 `wslconfig` 部署到 `%USERPROFILE%\.wslconfig`（內容不同才動，覆蓋前備份） |
 | `$UnregisterOld` / `$OldDistroName` | `$false` / — | 建置成功後詢問是否移除指定的舊 distro（需明確確認） |
 

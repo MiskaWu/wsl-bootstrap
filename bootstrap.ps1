@@ -133,8 +133,8 @@ if ($LASTEXITCODE -ne 0) {
 # ===========================================================================
 # Provision (root): 系統 + user + wsl.conf + baseline + OOBE opt-out → shutdown
 # ---------------------------------------------------------------------------
-# 這是唯一的一支 bash phase。軟體工作環境（podman/go/claude/toolchain）不在這裡，
-# 交給獨立的 dev-env-ansible（在 distro 內本機 make apply）。
+# 這是唯一的一支 bash phase。軟體工作環境（container runtime / 語言 / toolchain）不在
+# 這裡——用你的組態管理另外裝（例如 Ansible，在 distro 內執行）。bootstrap 不綁特定 repo。
 # ===========================================================================
 Invoke-Wsl -Script (Get-Script 'provision.sh') -AsUser 'root' -Label 'provision' `
     -EnvVars @{ BS_USER = $User }
@@ -169,21 +169,13 @@ if ($UnregisterOld -and $OldDistroName) {
 }
 
 # ===========================================================================
-# 收尾訊息：bring-up 到此為止，工作環境交給 dev-env-ansible
+# 收尾訊息：bring-up 到此為止（不綁特定軟體 repo）
 # ===========================================================================
-$envRepoHint = if ($EnvRepo) { $EnvRepo } else { '<dev-env-ansible repo URL>' }
-Info "Bring-up 完成！distro '$Distro' 已就緒：systemd + 預設 user + git/make/ansible。"
+Info "Bring-up 完成！distro '$Distro' 已就緒："
+Info "  systemd + 預設 user + 免密碼 sudo + baseline（git / make / ansible-core /"
+Info "  python3）+ Ubuntu 遙測 opt-out。"
 Info ""
-Info "工作環境（podman / go / claude / toolchain）由獨立的 dev-env-ansible 負責，"
-Info "在 distro 內本機 make apply。進去後："
+Info "軟體工作環境（container runtime / 語言 / toolchain）請用你的組態管理另外裝"
+Info "（例如 Ansible role，在 distro 內執行）。這支 bootstrap 到此為止、不綁特定 repo。"
 Info ""
-Info "  wsl -d $Distro"
-Info "  git clone $envRepoHint ~/projects/dev-env-ansible"
-Info "  cd ~/projects/dev-env-ansible && make check   # 預覽會裝什麼"
-Info "  make apply                                     # 套用"
-Info ""
-Info "裝完後在 Windows 端跑一次 'wsl --shutdown'（不是 --terminate）再重進——讓 rootless"
-Info "podman.socket 在乾淨 session 起來（WSL systemd 有 executor 冷啟動 race，full"
-Info "shutdown 才清得掉）。"
-Info ""
-Info "再手動：claude（首次 OAuth）、git config --global user.name/email、貼 SSH 公鑰。"
+Info "第一次進入： wsl -d $Distro"

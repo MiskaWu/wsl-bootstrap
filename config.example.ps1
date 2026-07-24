@@ -7,8 +7,8 @@
 #   .\bootstrap.ps1           # 無人值守跑完
 #
 # 這支只負責 **bring-up**：distro + user + systemd + baseline(git/make/ansible)
-# + OOBE opt-out。軟體工作環境（podman / go / claude / toolchain）由獨立的
-# dev-env-ansible repo 裝（在 distro 內 make apply），設定在那邊的 group_vars。
+# + OOBE opt-out。軟體工作環境（container runtime / 語言 / toolchain）不在這裡——
+# 用你的組態管理另外裝（例如 Ansible，在 distro 內執行）。bootstrap 不綁特定 repo。
 # =============================================================================
 
 # ---- Distro ----------------------------------------------------------------
@@ -22,11 +22,6 @@ $User        = 'miskawu'        # distro 內登入 user（建議對齊 Windows �
 # 這是讓全域設定進版控、不會誤刪就消失的方式。內容與理由見該檔案。
 # 注意：它影響機器上**所有** WSL2 distro，且要 wsl --shutdown 才生效。
 $DeployWslConfig = $true
-
-# ---- 工作環境 repo ---------------------------------------------------------
-# 只用在收尾訊息，提示你 clone 哪個 repo 去 make apply。pin 版本就把 URL 換成帶
-# tag/branch 的 clone（見 dev-env-ansible README）。不用 submodule。
-$EnvRepo     = 'git@github.com:MiskaWu/dev-env-ansible.git'
 
 # ---- 舊 distro 清理（謹慎！） ----------------------------------------------
 # $true 會在成功建好新 distro 後，詢問是否 unregister 指定的舊 distro。
