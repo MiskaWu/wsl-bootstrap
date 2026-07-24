@@ -32,13 +32,16 @@ $GitEmail = 'you@example.com'
 # 每個 scope 一把 ed25519（無 passphrase）：~/.ssh/id_ed25519_<Tag>_<scope>。
 # 生成後 bootstrap 會把公鑰印出來。$SshKeyScopes 設 @() 則不產 key。
 #
-# $SshKeyComment 慣例（維護導向）：<user>@<distro>.wsl.<機器名>
-#   標出「誰、哪個 distro、在 WSL、哪台實體機」——日後在 server 的 authorized_keys / 稽核 /
-#   ssh-add -l 一眼認出、方便 revoke。<機器名> 要能唯一指到一台實體機（多台時別撞名）。
-#   provision 會再接上 -<scope> 與生成日期，完整如：you@dev.wsl.my-pc-github 2026-07-24。
-$SshKeyTag     = 'dev'                          # 檔名前綴
-$SshKeyComment = 'you@dev.wsl.your-machine'     # 見上：user@distro.wsl.機器
-$SshKeyScopes  = @('github', 'gitlab')          # 要為哪些平台各產一把
+# $SshKeyComment 慣例（維護導向）：<user>@<環境識別>
+#   <環境識別> 要能一眼認出「這把 key 屬於哪個環境」，日後在 authorized_keys / 稽核 /
+#   ssh-add -l 認出、方便 revoke。用「環境」而非「機器名」區分 —— 因為同一台實體機上可能
+#   有多個環境（WSL dev、Windows 本機…），它們是同一台機、機器名分不出誰是誰；差異在環境。
+#   例：you@myco-dev（WSL 開發環境）vs you@myco-win（同機的 Windows）。
+#   只有「同一環境名跨多台實體機」才需要把機器名加進去（如 you@myco-dev.host-b）。
+#   provision 會再接上 -<scope> 與生成日期，完整如：you@myco-dev-github 2026-07-24。
+$SshKeyTag     = 'dev'                    # 檔名前綴
+$SshKeyComment = 'you@myco-dev'          # 見上：user@環境識別
+$SshKeyScopes  = @('github', 'gitlab')   # 要為哪些平台各產一把
 
 # ---- 舊 distro 清理（謹慎！） ----------------------------------------------
 # $true 會在成功建好新 distro 後，詢問是否 unregister 指定的舊 distro。
