@@ -1,15 +1,16 @@
 # wsl-bootstrap
 
-Config 驅動、無人值守的 WSL2 distro **bring-up** 工具 —— 只把 distro 帶到「可以交給
-Ansible 接手」的狀態。
+Config 驅動、無人值守的 WSL2 distro **bring-up** 工具 —— 只把 distro 帶到「可以 clone
+你的組態管理 repo、用 `make` 起手」的狀態。
 
 一份 config、一道指令，跑完走人。產出一個乾淨的 Ubuntu 26.04 WSL2 distro，內含 systemd、
-你的 user、免密碼 sudo、baseline（`git`、`make`、`ansible-core`），並關掉 Ubuntu 遙測 ——
-一台可連、可被組態管理的機器。
+你的 user、免密碼 sudo、baseline（**只有 `git` + `make`**），並關掉 Ubuntu 遙測 ——
+一台乾淨、可交給任何組態管理接手的機器。
 
 真正的開發環境（Podman、Go、Claude Code、toolchain）由另一個獨立 repo **dev-env-ansible**
-負責，在機器上用 `make apply` 本機安裝。刻意拆成兩個 repo：那個 Ansible role 是
-host-agnostic、任何 Linux 都能用，不該綁死在這支 WSL 專用的 bootstrap。
+負責：在機器上 clone 它、`make init` 一路裝好。刻意拆成兩個 repo：那個 role 是
+host-agnostic、任何 Linux 都能用，不該綁死在這支 WSL 專用的 bootstrap。連 `ansible` 都
+不放進 baseline —— 它的 Makefile 會在需要時自己補（不能用 ansible 裝 ansible）。
 
 ## 為什麼拆兩個 repo
 
@@ -33,15 +34,17 @@ notepad config.ps1                 # 設 distro 名 + user
 .\bootstrap.ps1                    # 無人值守；中途自動重啟 WSL 兩次
 ```
 
-接著進 distro 裝開發環境：
+接著進 distro，clone 你的組態管理 repo，用它的 Makefile 起手：
 
 ```bash
 wsl -d dev
-git clone <dev-env-ansible repo> ~/projects/dev-env-ansible
+git clone <你的 dev-env-ansible repo> ~/projects/dev-env-ansible
 cd ~/projects/dev-env-ansible
-make check    # 預覽會裝什麼
-make apply    # podman、go、claude、toolchain
+make init     # 自己補 ansible → 裝軟體 → 印出要貼 GitHub 的公鑰 → 印收尾清單
 ```
+
+（`make init` = `make apply` + `make ssh-keys`；只想預覽用 `make check`。baseline 沒有
+`ansible`，Makefile 第一次跑會自己 `apt install ansible-core`。）
 
 驗證 bring-up：
 
@@ -55,7 +58,8 @@ wsl -d dev -u miskawu -- bash -l < scripts/verify.sh
 - 寫 `/etc/wsl.conf`：開 systemd、`$User` 為預設登入、WSL 管理 `resolv.conf`、附加
   Windows PATH
 - `apt update && upgrade`
-- 裝 baseline：`git`、`make`、`ansible-core`、`python3` —— 讓機器能本機跑 Ansible role
+- 裝 baseline：**只有 `git` + `make`** —— 剛好夠 clone 組態管理 repo 並用它的 Makefile
+  起手（連 `ansible` 都不裝，交給那個 repo 的 Makefile 自己補）
 - 關掉 Ubuntu 26.04 遙測：寫 `~/.config/ubuntu-insights/*-consent.toml`
   （`consent_state = false`），首次啟動不跳互動式 metrics 提問
 - 建立 `~/projects`
@@ -127,8 +131,8 @@ wsl-bootstrap/
 - `config.ps1` 已 gitignore。
 - repo 放 WSL 檔案系統（`~/`），不要放 `/mnt/c/` —— I/O，而且 Ansible 會忽略
   world-writable 的 `/mnt/c` 裡的 `ansible.cfg`。
-- bring-up 之後：clone dev-env-ansible + `make apply`，然後 `claude`（首次 OAuth）與
-  `git config --global user.name/email`。
+- bring-up 之後：clone 你的組態管理 repo + `make init`。收尾的手動步驟（把公鑰貼到
+  GitHub、`claude` 首次 OAuth）由 `make init` 印清單提示；`make git-config` 設 git 身分。
 
 ## 授權
 

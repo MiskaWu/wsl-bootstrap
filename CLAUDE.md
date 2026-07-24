@@ -5,13 +5,20 @@
 Config-driven、無人值守的 WSL2 distro **bring-up** 工具。一個 PowerShell orchestrator
 （`bootstrap.ps1`）在 Windows 上跑，把**一支** bash 腳本（`scripts/provision.sh`）pipe
 進新建的 WSL distro，中途自動重啟 WSL 兩次。產出：一個乾淨的 Ubuntu 26.04 distro，有
-systemd、預設 user、免密碼 sudo、baseline（git / make / ansible-core）、Ubuntu 遙測已
-opt-out —— 一台「Ansible 管得動」的機器。
+systemd、預設 user、免密碼 sudo、baseline（**只有 git + make**）、Ubuntu 遙測已
+opt-out —— 一台「clone 組態管理 repo、`make` 起手就能接手」的機器。
 
 **軟體工作環境（Podman / Go / Claude Code / toolchain）不在這裡** —— 由獨立的
-`dev-env-ansible` repo 負責，在 distro 內 `make apply`。拆兩個 repo 是刻意的：那個
+`dev-env-ansible` repo 負責，在 distro 內 clone + `make init`。拆兩個 repo 是刻意的：那個
 Ansible role 是 host-agnostic、可跨任何 Linux host 用，不該綁在這支 WSL-specific 的
 bootstrap。改軟體層去 `dev-env-ansible`，別在這裡加。
+
+**baseline 為什麼只有 git + make（2026-07 收斂）：** bring-up 不該預設你用哪套組態管理，
+所以只給「clone repo（git）+ 跑它的操作入口（make）」的最小集。連 `ansible` 都不裝 ——
+組態管理 repo 的 Makefile 會在需要時自己 `apt install ansible-core`（不能用 ansible 裝
+ansible，這層由 make 補）。`make` 一定要在 baseline：它是 repo 的入口，而 make 指令本身
+得先存在才跑得起來（第二層雞生蛋）。這也讓整套跨平台通用 —— 非 WSL host 只要有 git+make
+就能 clone + `make init`。
 
 **這不是會長期跑的服務，是一次性建置腳本。**「正確」= 在乾淨 Windows 上從零跑到底、
 零互動、結束後 `scripts/verify.sh` 全過。
@@ -70,7 +77,7 @@ bootstrap。改軟體層去 `dev-env-ansible`，別在這裡加。
 
 ```
 Phase 0   (PS)     wsl --install --no-launch
-provision (root)   apt + 建 user + wsl.conf + baseline(git/make/ansible) + OOBE opt-out
+provision (root)   apt + 建 user + wsl.conf + baseline(git+make) + OOBE opt-out
           ↓ wsl --shutdown      ← systemd 與 default user 只在 VM 重啟後才生效
           ↓ wsl --terminate     ← 收尾，讓第一次進入是乾淨 session（避 user-session race）
 ```

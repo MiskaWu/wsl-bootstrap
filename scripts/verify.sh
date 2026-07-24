@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
-# 驗收腳本：確認 bring-up 完成、distro 已「Ansible 管得動」。在 distro 內以目標
-# user 執行：
+# 驗收腳本：確認 bring-up 完成、distro 已「可以 clone + make 起手」。在 distro 內以
+# 目標 user 執行：
 #
 #   wsl -d dev -u miskawu -- bash -l < scripts/verify.sh
 #
@@ -38,11 +38,11 @@ chk "wsl.conf"  'grep -h -E "systemd|default" /etc/wsl.conf | tr "\n" " "'
 # degraded 可接受（見 CLAUDE.md 排查），判字串不判 exit code。
 chk "systemd"   'st=$(systemctl is-system-running 2>&1); case "$st" in running) echo "$st";; degraded) echo "$st";; *) echo "$st"; false;; esac'
 
-echo "== baseline（讓 dev-env-ansible 能本機 make apply）=="
+echo "== baseline（git + make：clone 組態管理 repo + 用它的 Makefile 起手）=="
+# 刻意只有 git + make。ansible / python / 軟體全交給組態管理 repo 自己裝
+# （Makefile 會在需要時補 ansible），所以這裡不驗那些。
 chk "git"       'git --version'
 chk "make"      'make --version | head -1'
-chk "ansible"   'ansible --version | head -1'
-chk "python3"   'python3 --version'
 chk "projects"  'test -d "$HOME/projects" && echo "$HOME/projects"'
 
 echo "== OOBE metrics opt-out =="

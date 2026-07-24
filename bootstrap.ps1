@@ -172,10 +172,11 @@ if ($UnregisterOld -and $OldDistroName) {
 # 收尾訊息：bring-up 到此為止（不綁特定軟體 repo）
 # ===========================================================================
 Info "Bring-up 完成！distro '$Distro' 已就緒："
-Info "  systemd + 預設 user + 免密碼 sudo + baseline（git / make / ansible-core /"
-Info "  python3）+ Ubuntu 遙測 opt-out。"
+Info "  systemd + 預設 user + 免密碼 sudo + baseline（git + make）+ Ubuntu 遙測 opt-out。"
 Info ""
 Info "軟體工作環境（container runtime / 語言 / toolchain）請用你的組態管理另外裝"
 Info "（例如 Ansible role，在 distro 內執行）。這支 bootstrap 到此為止、不綁特定 repo。"
+Info "baseline 只給 git + make：clone 你的組態管理 repo，用它的 Makefile 起手"
+Info "（Makefile 會在需要時自己補 ansible）。"
 Info ""
 Info "第一次進入： wsl -d $Distro"

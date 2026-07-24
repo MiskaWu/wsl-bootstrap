@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Provision (root)：把乾淨的 Ubuntu WSL distro 帶到「Ansible 管得動」的狀態。
+# Provision (root)：把乾淨的 Ubuntu WSL distro 帶到「可以 clone + make 起手」的狀態。
 #   - 建 user + NOPASSWD sudo
 #   - /etc/wsl.conf（systemd + 預設 user）
-#   - baseline：git, make, ansible-core, python3 —— 讓 dev-env-ansible 能本機 make apply
+#   - baseline：**只有 git + make**（clone 組態管理 repo + 用它的 Makefile 起手）
 #   - OOBE metrics opt-out（首次互動啟動不再跳提問）
 #
-# 軟體工作環境（podman / go / claude / toolchain）**不在這裡** —— 交給獨立的
-# dev-env-ansible repo（在 distro 內 `make apply`）。這支只負責 bring-up。
+# 其餘一切（ansible、podman、go、claude、toolchain…）**都不在這裡** —— 交給你的組態管理
+# repo 自己裝。連 ansible 都不在 baseline：那個 repo 的 Makefile 會在需要時自己
+# `apt install ansible-core`（不能用 ansible 裝 ansible，所以由 make 這層補）。
+# 為什麼 make 要在 baseline：make 是那個 repo 的操作入口，而 make 指令本身得先存在才跑得起
+# 來——這是第二層雞生蛋，所以 make（很小）留在 bring-up。bring-up 到「乾淨 distro + git + make」為止。
 # 執行後需 `wsl --shutdown` 讓 systemd / 預設 user 生效。
 # =============================================================================
 set -euo pipefail
@@ -32,8 +35,8 @@ else
   log "user 已存在，略過"
 fi
 
-log "baseline：git make ansible-core python3"
-apt-get install -y git make ansible-core python3 ca-certificates curl
+log "baseline：git make（clone 組態管理 repo + 用它的 Makefile 起手；其餘由該 repo 自己裝）"
+apt-get install -y git make
 
 # OOBE metrics opt-out（Ubuntu 26.04 的 ubuntu-insights）。
 # 首次互動啟動時 wsl-setup 會問「opt-in platform metrics?」——這違反零互動。
