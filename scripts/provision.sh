@@ -1,66 +1,103 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Provision (root)：把乾淨的 Ubuntu WSL distro 帶到「git-ready、可以 clone + make 起手」。
+# Provision (root)：把 Ubuntu WSL distro 帶到「git-ready、可 clone + make 起手」。
+# 由 bootstrap.ps1 pipe 進 distro；fresh build 與 `-Update` 共用同一支（單一 source
+# of truth），差別只在下面兩個環境變數。
 #   - 建 user + NOPASSWD sudo
 #   - /etc/wsl.conf（systemd + 預設 user）
 #   - baseline：git + make + openssh-client（clone repo + Makefile 起手 + git over ssh）
-#   - git 身分（~/.gitconfig）與 SSH keys（每 scope 一把 ed25519）—— 裝完就 git-ready，
-#     能直接 commit、貼 key 到 GitHub/GitLab、clone 私有 repo
+#   - git 身分（~/.gitconfig）+ SSH keys（per scope ed25519）+ ~/.ssh/config（host→key）
 #   - OOBE metrics opt-out（首次互動啟動不再跳提問）
 #
-# 軟體工作環境（ansible、podman、go、claude、toolchain…）**都不在這裡** —— 交給你的組態
-# 管理 repo 自己裝。連 ansible 都不在 baseline：那個 repo 的 Makefile 會在需要時自己
-# `apt install ansible-core`（不能用 ansible 裝 ansible，所以由 make 這層補）。make 要在
-# baseline 是因為它是那個 repo 的操作入口、指令本身得先存在（第二層雞生蛋）。
-# git 身分/keys 放這裡（不放軟體 repo）是刻意的：它們是「一台個人機」的一部分，且 key 得
-# 先在才能 clone 私有 repo —— host-agnostic 但屬於 bring-up。
-# 執行後需 `wsl --shutdown` 讓 systemd / 預設 user 生效。
+# **冪等**：重跑不爆不重複（建 user 前 id 檢查、檔案 install 覆寫、ssh-keygen 已存在跳過、
+# ssh config 用 managed 區塊）——所以能對現有 distro 收斂（bootstrap.ps1 -Update）。
+#   BS_DRY_RUN   非空 → 預覽：只顯示會改什麼（檔案做 unified diff、套件/key 只報告），不動機器。
+#   BS_SKIP_UPGRADE 非空 → 跳過 apt upgrade（-Update 預設如此，避免每次順手動整個系統）。
+#
+# 軟體工作環境（ansible/podman/go/claude/toolchain）**都不在這裡**——交給組態管理 repo。
+# 有改到 wsl.conf 時需 `wsl --shutdown` 讓 systemd / 預設 user / wsl.conf 生效。
 # =============================================================================
 set -euo pipefail
 
 : "${BS_USER:?BS_USER not set}"
+DRY="${BS_DRY_RUN:-}"                  # 非空 = 預覽（不動機器）
+SKIP_UPGRADE="${BS_SKIP_UPGRADE:-}"    # 非空 = 跳過 apt upgrade
 
-log() { printf '\033[1;34m[provision]\033[0m %s\n' "$*"; }
+log()  { printf '\033[1;34m[provision]\033[0m %s\n' "$*"; }
+plan() { printf '\033[1;33m[plan]\033[0m %s\n' "$*"; }   # 預覽模式的「會做什麼」
+
+# 產生內容用 stdin 餵進來 | write_or_diff <path> <owner> <mode>
+#   預覽：跟現況做 unified diff、印出、不寫。 套用：install 到位（owner + mode）。
+# diff 差異回傳 1，會被 set -e 抓——所以用 `|| true` 擋住。
+write_or_diff() {
+  local path="$1" owner="$2" mode="$3" tmp; tmp="$(mktemp)"; cat > "$tmp"
+  if [ -n "$DRY" ]; then
+    if [ ! -e "$path" ]; then
+      plan "${path}：會新建 ↓"; sed 's/^/    +/' "$tmp"
+    elif diff -q "$path" "$tmp" >/dev/null 2>&1; then
+      plan "${path}：無變更"
+    else
+      plan "${path}：會變更 ↓"; { diff -u "$path" "$tmp" || true; } | sed 's/^/    /'
+    fi
+    rm -f "$tmp"
+  else
+    install -o "$owner" -g "$owner" -m "$mode" "$tmp" "$path"; rm -f "$tmp"
+  fi
+}
 
 export DEBIAN_FRONTEND=noninteractive
+[ -n "$DRY" ] && log "=== DRY-RUN 預覽：以下只顯示會做什麼，不動機器 ==="
 
-log "apt update / upgrade"
-apt-get update -y
-apt-get upgrade -y
+# ---- apt ---------------------------------------------------------------------
+if [ -n "$DRY" ]; then
+  plan "apt-get update"
+  if [ -n "$SKIP_UPGRADE" ]; then plan "apt-get upgrade：跳過"; else plan "apt-get upgrade：會執行"; fi
+else
+  if [ -n "$SKIP_UPGRADE" ]; then log "apt update"; else log "apt update / upgrade"; fi
+  apt-get update -y
+  [ -z "$SKIP_UPGRADE" ] && apt-get upgrade -y
+fi
 
-log "建立 user: ${BS_USER}"
-if ! id "${BS_USER}" &>/dev/null; then
+# ---- baseline ----------------------------------------------------------------
+pkgs="git make openssh-client"
+if [ -n "$DRY" ]; then
+  missing=""
+  for p in $pkgs; do dpkg -s "$p" >/dev/null 2>&1 || missing="$missing $p"; done
+  if [ -n "$missing" ]; then plan "baseline 會裝：${missing# }"; else plan "baseline（$pkgs）：都在"; fi
+else
+  log "baseline：$pkgs"
+  apt-get install -y $pkgs
+fi
+
+# ---- user + NOPASSWD sudo ----------------------------------------------------
+if id "${BS_USER}" &>/dev/null; then
+  if [ -n "$DRY" ]; then plan "user ${BS_USER}：已存在"; else log "user ${BS_USER} 已存在，略過"; fi
+elif [ -n "$DRY" ]; then
+  plan "會建 user ${BS_USER}（-G sudo）+ NOPASSWD sudo"
+else
+  log "建立 user: ${BS_USER}"
   useradd -m -s /bin/bash -G sudo "${BS_USER}"
   # 免密碼 sudo（開發機常見；不想要就刪這行改設密碼）
   echo "${BS_USER} ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/${BS_USER}"
   chmod 0440 "/etc/sudoers.d/${BS_USER}"
-else
-  log "user 已存在，略過"
 fi
 
-log "baseline：git make openssh-client（clone repo + Makefile 起手 + git/ssh-keygen；其餘由該 repo 自己裝）"
-apt-get install -y git make openssh-client
-
-# OOBE metrics opt-out（Ubuntu 26.04 的 ubuntu-insights）。
-# 首次互動啟動時 wsl-setup 會問「opt-in platform metrics?」——這違反零互動。
-# 官方認可的做法：預先為該 user 寫 consent 檔（consent_state=false），OOBE 偵測到
-# 有效 consent 檔就跳過提問、且覆蓋 Windows registry 的預設。
-# 至少要有 wsl_setup 這個 source；linux / ubuntu_release_upgrader 一併關掉月度回報。
-log "OOBE metrics opt-out（consent=false）"
 home="$(getent passwd "${BS_USER}" | cut -d: -f6)"
-# 用 runuser 以 user 身分建目錄，確保連 ~/.config 這層中間目錄都是 user 所有。
-# （root 的 `install -d a/b` 會把中間的 a 建成 root，之後 podman / ansible 要在
-#   ~/.config 下動東西會 permission denied 或警告。）
-runuser -u "${BS_USER}" -- mkdir -p "${home}/.config/ubuntu-insights"
+: "${home:?無法取得 ${BS_USER} 的 home}"
+
+# ---- OOBE metrics opt-out（Ubuntu 26.04 的 ubuntu-insights）------------------
+# 首次互動啟動時 wsl-setup 會問「opt-in platform metrics?」——違反零互動。預先為 user 寫
+# consent 檔（consent_state=false），OOBE 偵測到就跳過提問、且覆蓋 Windows registry 預設。
+# 用 runuser 建目錄，確保 ~/.config 這層中間目錄也是 user 所有（root 的 install -d 會把
+# 中間目錄建成 root，之後在 ~/.config 下動東西會 permission denied）。
+[ -z "$DRY" ] && runuser -u "${BS_USER}" -- mkdir -p "${home}/.config/ubuntu-insights"
 for src in linux wsl_setup ubuntu_release_upgrader; do
-  f="${home}/.config/ubuntu-insights/${src}-consent.toml"
-  printf 'consent_state = false\n' > "$f"
-  chown "${BS_USER}:${BS_USER}" "$f"
-  chmod 0644 "$f"
+  printf 'consent_state = false\n' \
+    | write_or_diff "${home}/.config/ubuntu-insights/${src}-consent.toml" "${BS_USER}" 0644
 done
 
-log "寫入 /etc/wsl.conf"
-cat > /etc/wsl.conf <<EOF
+# ---- /etc/wsl.conf -----------------------------------------------------------
+cat <<EOF | write_or_diff /etc/wsl.conf root 0644
 [boot]
 systemd=true
 
@@ -74,46 +111,50 @@ generateResolvConf=true
 appendWindowsPath=true
 EOF
 
-# ---- git 身分（設在 user 的 global config；未給就略過）----------------------
+# ---- git 身分（設在 user 的 global config；未給就略過）------------------------
 if [ -n "${BS_GIT_NAME:-}" ] && [ -n "${BS_GIT_EMAIL:-}" ]; then
-  log "git 身分：${BS_GIT_NAME} <${BS_GIT_EMAIL}>"
-  runuser -u "${BS_USER}" -- git config --global user.name  "${BS_GIT_NAME}"
-  runuser -u "${BS_USER}" -- git config --global user.email "${BS_GIT_EMAIL}"
+  if [ -n "$DRY" ]; then
+    cn="$(runuser -u "${BS_USER}" -- git config --global user.name  2>/dev/null || true)"
+    ce="$(runuser -u "${BS_USER}" -- git config --global user.email 2>/dev/null || true)"
+    if [ "$cn" = "${BS_GIT_NAME}" ] && [ "$ce" = "${BS_GIT_EMAIL}" ]; then
+      plan "git 身分：無變更（${BS_GIT_NAME} <${BS_GIT_EMAIL}>）"
+    else
+      plan "git 身分：${cn:-（未設）} <${ce:-（未設）}> → ${BS_GIT_NAME} <${BS_GIT_EMAIL}>"
+    fi
+  else
+    log "git 身分：${BS_GIT_NAME} <${BS_GIT_EMAIL}>"
+    runuser -u "${BS_USER}" -- git config --global user.name  "${BS_GIT_NAME}"
+    runuser -u "${BS_USER}" -- git config --global user.email "${BS_GIT_EMAIL}"
+  fi
 else
-  log "未設 BS_GIT_NAME/BS_GIT_EMAIL，略過 git 身分"
+  m="未設 BS_GIT_NAME/BS_GIT_EMAIL，略過 git 身分"
+  if [ -n "$DRY" ]; then plan "$m"; else log "$m"; fi
 fi
 
-# ---- SSH keys（每個 scope 一把 ed25519，無 passphrase；冪等：已存在跳過）------
-# 生成後印出公鑰，讓你裝完就能貼到 GitHub/GitLab、clone 私有 repo。
+# ---- SSH keys（每 scope 一把 ed25519，無 passphrase；冪等：已存在跳過）--------
+# 並寫 ~/.ssh/config：非預設檔名的 key，SSH 不會自動用，一定要 IdentityFile 對應，否則
+# git over ssh 根本不會碰到這些 key。IdentitiesOnly yes：只用指定那把，避免多 key 時
+# "Too many authentication failures"。config 用 managed 標記包住，重跑只覆蓋自己那段。
 if [ -n "${BS_SSH_KEY_SCOPES:-}" ]; then
   tag="${BS_SSH_KEY_TAG:-dev}"
   comment="${BS_SSH_KEY_COMMENT:-${BS_USER}@$(hostname)}"
   today="$(date +%F)"
-  runuser -u "${BS_USER}" -- install -d -m 0700 "${home}/.ssh"
+  [ -z "$DRY" ] && runuser -u "${BS_USER}" -- install -d -m 0700 "${home}/.ssh"
   for scope in ${BS_SSH_KEY_SCOPES}; do
     key="${home}/.ssh/id_ed25519_${tag}_${scope}"
     if [ -f "$key" ]; then
-      log "SSH key 已存在，略過：$(basename "$key")"
+      if [ -n "$DRY" ]; then plan "SSH key $(basename "$key")：已存在"; else log "SSH key 已存在，略過：$(basename "$key")"; fi
+    elif [ -n "$DRY" ]; then
+      plan "SSH key $(basename "$key")：會生成（ed25519, -C '${comment}-${scope} ${today}'）"
     else
       log "產生 SSH key：$(basename "$key")"
-      runuser -u "${BS_USER}" -- ssh-keygen -t ed25519 -N '' \
-        -C "${comment}-${scope} ${today}" -f "$key"
+      runuser -u "${BS_USER}" -- ssh-keygen -t ed25519 -N '' -C "${comment}-${scope} ${today}" -f "$key"
     fi
   done
-  log "SSH 公鑰（貼到 GitHub/GitLab）："
-  for scope in ${BS_SSH_KEY_SCOPES}; do
-    pub="${home}/.ssh/id_ed25519_${tag}_${scope}.pub"
-    [ -f "$pub" ] && printf '  %s\n' "$(cat "$pub")"
-  done
-
-  # ~/.ssh/config：非預設檔名的 key，SSH 不會自動拿來用 —— 必須靠 config 的 IdentityFile
-  # 指定「哪個 host 用哪把 key」，否則 git over ssh（git pull/clone）根本不會用到這些 key。
-  # IdentitiesOnly yes：只提供指定那把，避免多把 key 時 "Too many authentication failures"。
-  # 冪等：只覆蓋自己的 managed 區塊（標記包住），不動你手加的其他 Host 設定。
-  log "寫入 ~/.ssh/config（host → key 對應）"
+  # ~/.ssh/config：組出「更新後的完整內容」再交給 write_or_diff（預覽 diff / 套用寫入）
   cfg="${home}/.ssh/config"
-  touch "$cfg"
-  sed -i '/^# >>> wsl-bootstrap managed/,/^# <<< wsl-bootstrap managed/d' "$cfg"
+  new="$(mktemp)"
+  [ -f "$cfg" ] && sed '/^# >>> wsl-bootstrap managed/,/^# <<< wsl-bootstrap managed/d' "$cfg" > "$new"
   {
     echo "# >>> wsl-bootstrap managed（scope host → key；重跑覆蓋本區塊）>>>"
     for scope in ${BS_SSH_KEY_SCOPES}; do
@@ -121,17 +162,26 @@ if [ -n "${BS_SSH_KEY_SCOPES:-}" ]; then
         github)    sshhost=github.com ;;
         gitlab)    sshhost=gitlab.com ;;
         bitbucket) sshhost=bitbucket.org ;;
-        *)         sshhost="$scope" ;;   # 已是 FQDN 或自訂短名：原樣（可自行改）
+        *)         sshhost="$scope" ;;   # 已是 FQDN 或自訂：原樣
       esac
       printf 'Host %s\n    User git\n    IdentityFile %s/.ssh/id_ed25519_%s_%s\n    IdentitiesOnly yes\n\n' \
         "$sshhost" "$home" "$tag" "$scope"
     done
     echo "# <<< wsl-bootstrap managed <<<"
-  } >> "$cfg"
-  chown "${BS_USER}:${BS_USER}" "$cfg"
-  chmod 600 "$cfg"
+  } >> "$new"
+  write_or_diff "$cfg" "${BS_USER}" 0600 < "$new"
+  rm -f "$new"
+  # 公鑰（套用時印出來，方便貼平台）
+  if [ -z "$DRY" ]; then
+    log "SSH 公鑰（貼到 GitHub/GitLab）："
+    for scope in ${BS_SSH_KEY_SCOPES}; do
+      pub="${home}/.ssh/id_ed25519_${tag}_${scope}.pub"
+      [ -f "$pub" ] && printf '  %s\n' "$(cat "$pub")"
+    done
+  fi
 else
-  log "未設 BS_SSH_KEY_SCOPES，略過 SSH keys"
+  m="未設 BS_SSH_KEY_SCOPES，略過 SSH keys"
+  if [ -n "$DRY" ]; then plan "$m"; else log "$m"; fi
 fi
 
-log "provision 完成 —— 需要 wsl --shutdown"
+if [ -n "$DRY" ]; then log "=== DRY-RUN 結束：以上皆未執行 ==="; else log "provision 完成"; fi

@@ -71,6 +71,26 @@ wsl -d dev -u miskawu -- bash -l < scripts/verify.sh
 
 之後自動重啟 WSL 兩次（一次讓 systemd／預設 user 生效，一次讓你第一次進去是乾淨 session）。
 
+## 更新已建好的 distro（`-Update`）
+
+改了 bring-up 設定（`config.ps1`、`provision.sh`、`wslconfig`）後，**不必 unregister 重建**
+—— `-Update` 對現有 distro 冪等收斂，**不動你的 key / 資料 / 已 clone 的東西**。在 Windows
+PowerShell、wsl-bootstrap 資料夾執行：
+
+```powershell
+.\bootstrap.ps1 -Update            # 先顯示 diff → 問 yes → 套用（互動）
+.\bootstrap.ps1 -Update -WhatIf    # 只看 diff，不問不改（純預覽）
+.\bootstrap.ps1 -Update -Yes       # 跳過詢問直接套用（非互動 / 腳本）
+.\bootstrap.ps1 -Update -Upgrade   # 順便 apt upgrade（預設跳過，免每次動整個系統）
+```
+
+預覽會逐項顯示：缺哪些 baseline 套件、`wsl.conf` / `~/.ssh/config` / `~/.gitconfig` /
+consent 的 unified diff、哪些 key 會生成、`.wslconfig` 的差異。**只有動到 `wsl.conf` /
+`.wslconfig` 才需 `wsl --shutdown` 生效**，其他即時。
+
+同一支 `provision.sh` 靠 `BS_DRY_RUN` 切換預覽 / 套用，所以「看到的 diff」與「實際套用」
+是同一份邏輯，不會漂移。（軟體層的更新是另一回事：進 distro `make apply`。）
+
 ## 設定（`config.ps1`）
 
 | 選項 | 預設 | 控制 |

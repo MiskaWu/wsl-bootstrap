@@ -102,6 +102,26 @@ provision (root)   apt + 建 user + wsl.conf + baseline(git+make+openssh) + git�
 重啟是**功能性的**，不是保守做法。以前還有 phase2（容器 runtime）/ phase3（toolchain），
 已整批搬進 `dev-env-ansible`，所以現在只剩一支 provision。
 
+## 更新機制（`-Update` / dry-run，2026-07 加）
+
+bring-up 不只一次性建置——`bootstrap.ps1 -Update` 能對**現有** distro 冪等收斂（改了
+config / provision 後不必 unregister 重建，不動 key / 資料 / 已 clone 的東西）。關鍵設計：
+
+- **同一支 `provision.sh` 跑 fresh 與 update（單一 source of truth）**，靠 `BS_DRY_RUN`
+  切換：非空 = 預覽（managed 檔做 unified diff、套件/key 只報告），空 = 實際套用。這樣
+  「預覽看到的」與「套用做的」保證同一份邏輯、不會漂移。
+- **`write_or_diff` helper**（provision.sh）：內容用 stdin 餵，dry-run diff 現況、套用
+  `install` 到位（owner/mode）。所有 managed 檔（wsl.conf、consent、`~/.ssh/config`）都走它。
+  ssh config 先組「更新後完整內容」（`sed` 砍舊 managed 區塊 + 附新）再交給它 diff/寫。
+- **流程**：`-Update` = 預覽 diff → 互動 `Read-Host` 問 yes → 套用；`-WhatIf` 只預覽、
+  `-Yes` 跳過問、`-Upgrade` 才 apt upgrade。update 預設 `BS_SKIP_UPGRADE=1`（不每次動整個系統）。
+- **不自動重啟**（不打斷 running distro）：只有動到 wsl.conf / .wslconfig 才需 `wsl --shutdown`，
+  由收尾訊息提示。`Sync-WslConfig -Preview` 也會 diff `.wslconfig` 並警告要 shutdown。
+- **bootstrap.ps1 結構**：`Get-Script` / `Invoke-Wsl` / `Invoke-Provision` / `Sync-WslConfig`
+  四個函式 + 模式分支（`-Update` 一段、fresh 一段）。「distro 已存在」的檢查按模式相反：
+  fresh 存在就 Die、update 不存在就 Die。
+- provision 的冪等（見「慣例」）本來就是前提，update 只是把它反過來用在現有 distro。
+
 ## 設定如何流動
 
 `config.ps1`（gitignored）→ `bootstrap.ps1` 讀成 PS 變數 → `Invoke-Wsl` 以 `BS_*` 環境

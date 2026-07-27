@@ -1,12 +1,17 @@
 ﻿# =============================================================================
 # wsl-bootstrap :: bootstrap.ps1
 # -----------------------------------------------------------------------------
-# 無人值守建立一個乾淨的 WSL2 開發 distro。
+# 無人值守建立一個乾淨的 WSL2 開發 distro，或對現有 distro 收斂（-Update）。
 # 設定全部從 config.ps1 讀（複製自 config.example.ps1）。
 #
 #   cp config.example.ps1 config.ps1   # 首次
 #   notepad config.ps1                 # 改設定
-#   .\bootstrap.ps1                    # 跑（中途自動 shutdown，不需值守）
+#   .\bootstrap.ps1                    # 建置（中途自動 shutdown，不需值守）
+#
+#   .\bootstrap.ps1 -Update            # 對現有 distro 收斂：顯示 diff → 問 yes → 套用
+#   .\bootstrap.ps1 -Update -WhatIf    # 只看 diff，不問不改（純預覽）
+#   .\bootstrap.ps1 -Update -Yes       # 跳過詢問直接套用（非互動）
+#   .\bootstrap.ps1 -Update -Upgrade   # update 時連 apt upgrade（預設跳過）
 #
 # 前置需求: Windows 11 (24H2+) 或含 --name 的 WSL 版本、已啟用 WSL2。
 # =============================================================================
@@ -17,7 +22,12 @@ param(
     # $PSScriptRoot 還是空的，會算出 '\config.ps1'（當前磁碟機根目錄）然後找不到檔案。
     # 在 PS session 裡 .\bootstrap.ps1 或用 & 呼叫時反而正常——所以這個 bug 只在
     # `-File` 模式浮現，也就是 README 教的 ExecutionPolicy 繞道那條路。
-    [string]$ConfigPath
+    [string]$ConfigPath,
+
+    [switch]$Update,    # 對現有 distro 重跑 provision（冪等收斂），不建立、不重啟
+    [switch]$WhatIf,    # 搭 -Update：只預覽 diff，不問不改（dry-run）
+    [switch]$Yes,       # 搭 -Update：跳過互動確認，直接套用
+    [switch]$Upgrade    # 搭 -Update：連 apt upgrade 一起（預設跳過）
 )
 
 $ErrorActionPreference = 'Stop'
@@ -46,11 +56,7 @@ Info "已載入設定: $ConfigPath"
 if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
     Die "找不到 wsl.exe —— 請先安裝 WSL。"
 }
-
 $existing = (wsl.exe --list --quiet) -replace "`0","" | ForEach-Object { $_.Trim() }
-if ($existing -contains $Distro) {
-    Die "distro '$Distro' 已存在。若要重建請先 `wsl --unregister $Distro`（會刪光內容！）。"
-}
 
 # --- 把 bash 腳本讀進來，之後 pipe 進 wsl（避開 PS heredoc 引號地獄）------
 $scriptDir = Join-Path $PSScriptRoot 'scripts'
@@ -90,25 +96,52 @@ function Invoke-Wsl {
     if ($LASTEXITCODE -ne 0) { Die "$Label 失敗 (exit $LASTEXITCODE)" }
 }
 
-# ===========================================================================
-# 部署 .wslconfig（全域設定，影響機器上所有 distro，不只這裡建的）
-# ---------------------------------------------------------------------------
-# repo 裡的 `wslconfig` 是 source of truth。這樣設定才進版控——2026-07 發現原本
-# 的 .wslconfig 標的 source of truth（infra/windows/wslconfig）根本不存在，那份
-# 部署副本是唯一一份，誤刪就沒了。
-# 覆蓋前先備份既有檔，不弄丟手改的內容。改動要 wsl --shutdown 才生效，本腳本
-# 後面本來就會 shutdown。
-# 用 .NET WriteAllText 而不是 `Set-Content -Encoding UTF8`：PS 5.1 的 UTF8 會帶
-# BOM，而這個檔是給 WSL 自己解析的，別冒 BOM 的險。
-# ===========================================================================
-if ($DeployWslConfig) {
+# --- 用 config 的 BS_* 環境變數跑 provision（fresh 與 update 共用）----------
+# 未定義的 config 變數在 StrictMode-off 下是 $null → [string]$null = ''，provision 會略過
+# 對應步驟，所以舊的 config.ps1（沒有 git/ssh 設定）也不會壞。
+# -DryRun → BS_DRY_RUN=1（provision 只預覽 diff 不動機器）。
+# update 模式預設 BS_SKIP_UPGRADE=1（跳過 apt upgrade），除非帶 -Upgrade。
+function Invoke-Provision {
+    param([switch]$DryRun, [string]$Label = 'provision')
+    Invoke-Wsl -Script (Get-Script 'provision.sh') -AsUser 'root' -Label $Label -EnvVars @{
+        BS_USER            = $User
+        BS_GIT_NAME        = $GitName
+        BS_GIT_EMAIL       = $GitEmail
+        BS_SSH_KEY_TAG     = $SshKeyTag
+        BS_SSH_KEY_COMMENT = $SshKeyComment
+        BS_SSH_KEY_SCOPES  = ($SshKeyScopes -join ' ')
+        BS_DRY_RUN         = $(if ($DryRun) { '1' } else { '' })
+        BS_SKIP_UPGRADE    = $(if ($Update -and -not $Upgrade) { '1' } else { '' })
+    }
+}
+
+# --- 部署 / 預覽 .wslconfig（全域設定，影響機器上所有 distro）---------------
+# repo 裡的 `wslconfig` 是 source of truth。這樣設定才進版控——2026-07 發現原本標的
+# source of truth 根本不存在，部署副本是唯一一份，誤刪就沒了。覆蓋前備份，不弄丟手改內容。
+# 改動要 wsl --shutdown 才生效。用 .NET WriteAllText + 無 BOM UTF8：PS 5.1 的
+# Set-Content -Encoding UTF8 會帶 BOM，而這個檔是給 WSL 自己解析的，別冒 BOM 的險。
+function Sync-WslConfig {
+    param([switch]$Preview)
+    if (-not $DeployWslConfig) { return }
     $srcCfg = Join-Path $PSScriptRoot 'wslconfig'
     $dstCfg = Join-Path $env:USERPROFILE '.wslconfig'
     if (-not (Test-Path $srcCfg)) { Die "缺少 $srcCfg" }
     $newCfg = Get-Content $srcCfg -Raw -Encoding UTF8
-    $oldCfg = if (Test-Path $dstCfg) { Get-Content $dstCfg -Raw -Encoding UTF8 } else { $null }
+    $oldCfg = if (Test-Path $dstCfg) { Get-Content $dstCfg -Raw -Encoding UTF8 } else { '' }
+    if ($Preview) {
+        if ($oldCfg -eq $newCfg) { Info ".wslconfig：無變更" }
+        else {
+            Warn ".wslconfig：會變更（$dstCfg）—— 套用後需 wsl --shutdown 才生效"
+            Compare-Object (($oldCfg -replace "`r","") -split "`n") (($newCfg -replace "`r","") -split "`n") |
+                ForEach-Object {
+                    $s = if ($_.SideIndicator -eq '=>') { '+' } else { '-' }
+                    Write-Host "    $s $($_.InputObject)"
+                }
+        }
+        return
+    }
     if ($oldCfg -ne $newCfg) {
-        if ($null -ne $oldCfg) {
+        if ($oldCfg -ne '') {
             $bak = "$dstCfg.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
             Copy-Item $dstCfg $bak
             Warn "既有 .wslconfig 與 repo 版本不同，已備份到 $bak"
@@ -121,8 +154,43 @@ if ($DeployWslConfig) {
 }
 
 # ===========================================================================
-# Phase 0: 建 distro
+# Update 模式：對現有 distro 冪等收斂（顯示 diff → 問 yes → 套用），不建立、不重啟
 # ===========================================================================
+if ($Update) {
+    if ($existing -notcontains $Distro) {
+        Die "distro '$Distro' 不存在 —— -Update 是對現有 distro 收斂用的。要新建請不要帶 -Update。"
+    }
+
+    Info "=== Update 預覽（不動機器）：distro '$Distro' 會有哪些變更 ==="
+    Sync-WslConfig -Preview
+    Invoke-Provision -DryRun -Label 'update-preview'
+
+    if ($WhatIf) { Info "（-WhatIf：僅預覽，未做任何變更。要套用去掉 -WhatIf。）"; exit 0 }
+
+    if (-not $Yes) {
+        Write-Host ""
+        $ans = Read-Host "[bootstrap] 套用以上變更到 '$Distro'？（輸入 yes 確認，其他取消）"
+        if ($ans -ne 'yes') { Info "已取消，未做任何變更。"; exit 0 }
+    }
+
+    Info "=== 套用 ==="
+    Sync-WslConfig
+    Invoke-Provision -Label 'update'
+    Info "Update 完成。若上面顯示 wsl.conf / .wslconfig 有變更，需 `wsl --shutdown` 才生效"
+    Info "（其他多數改動即時生效，不影響你現有的 key / 資料 / 已 clone 的東西）。"
+    exit 0
+}
+
+# ===========================================================================
+# Fresh build：從零建立
+# ===========================================================================
+if ($existing -contains $Distro) {
+    Die "distro '$Distro' 已存在。重建請先 `wsl --unregister $Distro`（會刪光內容！）；只想更新用 `-Update`。"
+}
+
+Sync-WslConfig
+
+# --- Phase 0: 建 distro ----------------------------------------------------
 Info "Phase 0 — 安裝 $UbuntuImage 為 '$Distro'"
 wsl.exe --install -d $UbuntuImage --name $Distro --no-launch
 if ($LASTEXITCODE -ne 0) {
@@ -130,42 +198,24 @@ if ($LASTEXITCODE -ne 0) {
     Die  "請升級 WSL (`wsl --update`) 或改用 `wsl --import` 手動建 distro。"
 }
 
-# ===========================================================================
-# Provision (root): 系統 + user + wsl.conf + baseline + OOBE opt-out → shutdown
-# ---------------------------------------------------------------------------
-# 這是唯一的一支 bash phase。軟體工作環境（container runtime / 語言 / toolchain）不在
-# 這裡——用你的組態管理另外裝（例如 Ansible，在 distro 內執行）。bootstrap 不綁特定 repo。
-# ===========================================================================
-# 未定義的 config 變數在 StrictMode-off 下是 $null → [string]$null = ''，provision 會略過
-# 對應步驟，所以舊的 config.ps1（沒有 git/ssh 設定）也不會壞。
-Invoke-Wsl -Script (Get-Script 'provision.sh') -AsUser 'root' -Label 'provision' `
-    -EnvVars @{
-        BS_USER            = $User
-        BS_GIT_NAME        = $GitName
-        BS_GIT_EMAIL       = $GitEmail
-        BS_SSH_KEY_TAG     = $SshKeyTag
-        BS_SSH_KEY_COMMENT = $SshKeyComment
-        BS_SSH_KEY_SCOPES  = ($SshKeyScopes -join ' ')
-    }
+# --- Provision: 系統 + user + wsl.conf + baseline + git/keys + OOBE --------
+# 軟體工作環境（container runtime / 語言 / toolchain）不在這裡——用你的組態管理另外裝
+# （clone repo → make apply；Makefile 會自己補 ansible）。bootstrap 不綁特定 repo。
+Invoke-Provision -Label 'provision'
 
 Info "wsl --shutdown（讓 systemd / 預設 user 生效）"
 wsl.exe --shutdown
 Start-Sleep -Seconds 3
 
-# ===========================================================================
-# 收尾 terminate：讓第一次進入是乾淨 session
-# ---------------------------------------------------------------------------
+# --- 收尾 terminate：讓第一次進入是乾淨 session ----------------------------
 # 第一次啟動時 systemd 的 user session 可能短暫 cold-start race（is-system-running
 # 一瞬間 degraded），terminate 重進即恢復。先 terminate 一次，使用者第一次 wsl -d
 # 進去就是乾淨的。
-# ===========================================================================
 Info "wsl --terminate $Distro（收尾，確保第一次進入是乾淨 session）"
 wsl.exe --terminate $Distro
 Start-Sleep -Seconds 2
 
-# ===========================================================================
-# 舊 distro 清理（可選，需明確確認）
-# ===========================================================================
+# --- 舊 distro 清理（可選，需明確確認）------------------------------------
 if ($UnregisterOld -and $OldDistroName) {
     Warn "準備 unregister 舊 distro: $OldDistroName（無法復原！）"
     $ans = Read-Host "輸入舊 distro 名稱以確認刪除，其他任意鍵取消"
@@ -177,9 +227,7 @@ if ($UnregisterOld -and $OldDistroName) {
     }
 }
 
-# ===========================================================================
-# 收尾訊息：bring-up 到此為止（不綁特定軟體 repo）
-# ===========================================================================
+# --- 收尾訊息 --------------------------------------------------------------
 Info "Bring-up 完成！distro '$Distro' 已就緒："
 Info "  systemd + 預設 user + 免密碼 sudo + baseline（git + make + openssh-client）"
 Info "  + git 身分 + SSH keys + Ubuntu 遙測 opt-out —— 裝完就 git-ready。"
@@ -191,4 +239,5 @@ Info ""
 Info "軟體工作環境（container runtime / 語言 / toolchain）用你的組態管理另外裝"
 Info "（clone repo → make apply；Makefile 會自己補 ansible）。bootstrap 不綁特定 repo。"
 Info ""
+Info "日後更新這台的 bring-up 設定： .\bootstrap.ps1 -Update（會先給你看 diff）"
 Info "第一次進入： wsl -d $Distro"
