@@ -82,6 +82,13 @@ bring-up，裝完 distro 就 git-ready、公鑰已印出可貼平台。生成在
   但**貼公鑰到 GitHub/GitLab 這一步保持手動**（bootstrap 只印公鑰、不自動佈署，不把平台憑證
   帶進自動化）。**Claude Code 認證也保持手動**（瀏覽器 OAuth）。生成 ≠ 佈署：生成在這裡，
   佈署（貼平台）是你的事。
+- **非預設檔名的 key 一定要配 `~/.ssh/config`（2026-07 踩過）。** key 叫
+  `id_ed25519_<tag>_<scope>`，SSH 預設只找 `id_ed25519`/`id_rsa` 那些標準名，**不會**自動拿
+  我們的去用 —— 少了 config，`git pull`/`clone` over ssh 完全不會碰到這些 key（症狀：明明有
+  key 卻認證失敗/沒反應）。所以 provision 生成 key 後**同時寫 `~/.ssh/config`**：每個 scope 一段
+  `Host <host>` + `IdentityFile <該把 key>` + `IdentitiesOnly yes`（只用指定那把，避免多 key 時
+  "Too many authentication failures"）。scope→host 對應：github→github.com、gitlab→gitlab.com、
+  bitbucket→bitbucket.org，其餘原樣。config 用 managed 標記包住、重跑只覆蓋自己那段。
 
 ## 流程結構（為什麼有重啟）
 

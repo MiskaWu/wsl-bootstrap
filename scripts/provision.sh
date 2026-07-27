@@ -105,6 +105,31 @@ if [ -n "${BS_SSH_KEY_SCOPES:-}" ]; then
     pub="${home}/.ssh/id_ed25519_${tag}_${scope}.pub"
     [ -f "$pub" ] && printf '  %s\n' "$(cat "$pub")"
   done
+
+  # ~/.ssh/config：非預設檔名的 key，SSH 不會自動拿來用 —— 必須靠 config 的 IdentityFile
+  # 指定「哪個 host 用哪把 key」，否則 git over ssh（git pull/clone）根本不會用到這些 key。
+  # IdentitiesOnly yes：只提供指定那把，避免多把 key 時 "Too many authentication failures"。
+  # 冪等：只覆蓋自己的 managed 區塊（標記包住），不動你手加的其他 Host 設定。
+  log "寫入 ~/.ssh/config（host → key 對應）"
+  cfg="${home}/.ssh/config"
+  touch "$cfg"
+  sed -i '/^# >>> wsl-bootstrap managed/,/^# <<< wsl-bootstrap managed/d' "$cfg"
+  {
+    echo "# >>> wsl-bootstrap managed（scope host → key；重跑覆蓋本區塊）>>>"
+    for scope in ${BS_SSH_KEY_SCOPES}; do
+      case "$scope" in
+        github)    sshhost=github.com ;;
+        gitlab)    sshhost=gitlab.com ;;
+        bitbucket) sshhost=bitbucket.org ;;
+        *)         sshhost="$scope" ;;   # 已是 FQDN 或自訂短名：原樣（可自行改）
+      esac
+      printf 'Host %s\n    User git\n    IdentityFile %s/.ssh/id_ed25519_%s_%s\n    IdentitiesOnly yes\n\n' \
+        "$sshhost" "$home" "$tag" "$scope"
+    done
+    echo "# <<< wsl-bootstrap managed <<<"
+  } >> "$cfg"
+  chown "${BS_USER}:${BS_USER}" "$cfg"
+  chmod 600 "$cfg"
 else
   log "未設 BS_SSH_KEY_SCOPES，略過 SSH keys"
 fi

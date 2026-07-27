@@ -63,7 +63,9 @@ wsl -d dev -u miskawu -- bash -l < scripts/verify.sh
   起手、git over ssh（連 `ansible` 都不裝，交給那個 repo 的 Makefile 自己補）
 - 設 git 身分：`$GitName` / `$GitEmail` 寫進 user 的 `~/.gitconfig`（留空則略過）
 - 生成 SSH keys：每個 `$SshKeyScopes` 一把 ed25519（無 passphrase），並**印出公鑰**供你貼
-  GitHub/GitLab —— 裝完就能 clone 私有 repo（冪等：key 已存在就跳過）
+  GitHub/GitLab；同時寫 `~/.ssh/config` 把每個 host 對到它的 key（非預設檔名的 key 一定要
+  這個對應表，否則 git over ssh 根本不會用到）—— 裝完就能 clone 私有 repo（冪等：key 已存在
+  就跳過、config 只覆蓋自己的 managed 區塊）
 - 關掉 Ubuntu 26.04 遙測：寫 `~/.config/ubuntu-insights/*-consent.toml`
   （`consent_state = false`），首次啟動不跳互動式 metrics 提問
 

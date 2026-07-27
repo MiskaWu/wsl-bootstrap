@@ -46,9 +46,11 @@ chk "make"       'make --version | head -1'
 chk "ssh-keygen" 'command -v ssh-keygen'
 
 echo "== git-ready（身分 + SSH keys，bring-up 直接備好）=="
-chk "git.name"  'git config --global user.name'
-chk "git.email" 'git config --global user.email'
-chk "ssh-keys"  'for f in "$HOME"/.ssh/id_ed25519_*.pub; do [ -e "$f" ] && basename "$f"; done | tr "\n" " " | grep .'
+chk "git.name"   'git config --global user.name'
+chk "git.email"  'git config --global user.email'
+chk "ssh-keys"   'for f in "$HOME"/.ssh/id_ed25519_*.pub; do [ -e "$f" ] && basename "$f"; done | tr "\n" " " | grep .'
+# 非預設檔名的 key 一定要有 ~/.ssh/config 的 IdentityFile 對應，git over ssh 才用得到。
+chk "ssh-config" 'grep -qi "IdentityFile" "$HOME/.ssh/config" 2>/dev/null && echo "host→key 對應已寫"'
 
 echo "== OOBE metrics opt-out =="
 chk "consent"   'f="$HOME/.config/ubuntu-insights/wsl_setup-consent.toml"; grep -q "consent_state = false" "$f" && echo "wsl_setup=false"'
