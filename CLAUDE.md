@@ -102,10 +102,11 @@ provision (root)   apt + 建 user + wsl.conf + baseline(git+make+openssh) + git�
 重啟是**功能性的**，不是保守做法。以前還有 phase2（容器 runtime）/ phase3（toolchain），
 已整批搬進 `dev-env-ansible`，所以現在只剩一支 provision。
 
-## 更新機制（`-Update` / dry-run，2026-07 加）
+## 更新機制（no-arg 自動判斷 / dry-run，2026-07 加）
 
-bring-up 不只一次性建置——`bootstrap.ps1 -Update` 能對**現有** distro 冪等收斂（改了
-config / provision 後不必 unregister 重建，不動 key / 資料 / 已 clone 的東西）。關鍵設計：
+bring-up 不只一次性建置——**直接 `bootstrap.ps1`（no-arg）就會偵測狀態**：distro 已存在
+→ 進更新模式對它冪等收斂（不必 unregister 重建，不動 key / 資料 / 已 clone 的東西）；不存在
+→ 問要不要從零建。互動優先（跑起來自己問），旗標只是捷徑。關鍵設計：
 
 - **同一支 `provision.sh` 跑 fresh 與 update（單一 source of truth）**，靠 `BS_DRY_RUN`
   切換：非空 = 預覽（managed 檔做 unified diff、套件/key 只報告），空 = 實際套用。這樣
@@ -113,14 +114,19 @@ config / provision 後不必 unregister 重建，不動 key / 資料 / 已 clone
 - **`write_or_diff` helper**（provision.sh）：內容用 stdin 餵，dry-run diff 現況、套用
   `install` 到位（owner/mode）。所有 managed 檔（wsl.conf、consent、`~/.ssh/config`）都走它。
   ssh config 先組「更新後完整內容」（`sed` 砍舊 managed 區塊 + 附新）再交給它 diff/寫。
-- **流程**：`-Update` = 預覽 diff → 互動 `Read-Host` 問 yes → 套用；`-WhatIf` 只預覽、
-  `-Yes` 跳過問、`-Upgrade` 才 apt upgrade。update 預設 `BS_SKIP_UPGRADE=1`（不每次動整個系統）。
+- **流程**：更新模式 = 預覽 diff → 互動 `Read-Host` 問（接受 `y`/`yes`）→ 套用；建立模式 =
+  問「要建嗎」→ 建。旗標：`-Yes` 跳過所有確認（無人值守）、`-WhatIf` 只預覽、`-Update` 顯式
+  要求更新（對不存在的 distro 報錯，防打錯字誤建）、`-Upgrade` 才 apt upgrade。
+- **`BS_SKIP_UPGRADE` 要看「模式」不是「旗標」（2026-07 踩過）。** update 預設跳過 apt upgrade，
+  但一開始把它綁在 `-Update` 旗標上——no-arg 自動進更新時 `$Update` 是 false，upgrade 就沒被
+  跳過。改成 `Invoke-Provision -SkipUpgrade:(-not $Upgrade)` 由**呼叫點依所在模式**決定：更新
+  分支傳跳過、fresh 分支不傳（照裝 upgrade）。
 - **不自動重啟**（不打斷 running distro）：只有動到 wsl.conf / .wslconfig 才需 `wsl --shutdown`，
   由收尾訊息提示。`Sync-WslConfig -Preview` 也會 diff `.wslconfig` 並警告要 shutdown。
 - **bootstrap.ps1 結構**：`Get-Script` / `Invoke-Wsl` / `Invoke-Provision` / `Sync-WslConfig`
-  四個函式 + 模式分支（`-Update` 一段、fresh 一段）。「distro 已存在」的檢查按模式相反：
-  fresh 存在就 Die、update 不存在就 Die。
-- provision 的冪等（見「慣例」）本來就是前提，update 只是把它反過來用在現有 distro。
+  四個函式 + 模式分派（依 `$existing -contains $Distro`：存在→更新、不存在→建立）。`-Update`
+  只是「強制更新且斷言存在」（不存在就 Die，防誤建）。
+- provision 的冪等（見「慣例」）本來就是前提，更新只是把它反過來用在現有 distro。
 
 ## 設定如何流動
 

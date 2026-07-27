@@ -1,7 +1,7 @@
 # wsl-bootstrap
 
-Config 驅動、無人值守的 WSL2 distro **bring-up** 工具 —— 只把 distro 帶到「可以 clone
-你的組態管理 repo、用 `make` 起手」的狀態。
+Config 驅動的 WSL2 distro **bring-up** 工具（互動引導,`-Yes` 可無人值守）—— 只把 distro
+帶到「可以 clone 你的組態管理 repo、用 `make` 起手」的狀態。
 
 一份 config、一道指令，跑完走人。產出一個乾淨的 Ubuntu 26.04 WSL2 distro，內含 systemd、
 你的 user、免密碼 sudo、baseline（`git` + `make` + `openssh-client`）、**設好的 git 身分與
@@ -31,8 +31,11 @@ host-agnostic、任何 Linux 都能用，不該綁死在這支 WSL 專用的 boo
 ```powershell
 cp config.example.ps1 config.ps1   # 首次
 notepad config.ps1                 # 設 distro / user / git 身分 / SSH key scopes
-.\bootstrap.ps1                    # 無人值守；中途自動重啟 WSL 兩次
+.\bootstrap.ps1                    # 跑起來就自己問：不存在→問要不要建、已存在→更新（先看 diff）
 ```
+
+**直接 `.\bootstrap.ps1` 就好，它偵測狀態並互動引導,不必記旗標。** 想無人值守（全程不問）
+就加 `-Yes`。建置中會自動重啟 WSL 兩次。
 
 bootstrap 會在收尾印出 SSH 公鑰 —— 貼到 GitHub/GitLab 後就能 clone 私有 repo。接著進 distro，
 clone 你的組態管理 repo，用它的 Makefile 起手：
@@ -71,25 +74,25 @@ wsl -d dev -u miskawu -- bash -l < scripts/verify.sh
 
 之後自動重啟 WSL 兩次（一次讓 systemd／預設 user 生效，一次讓你第一次進去是乾淨 session）。
 
-## 更新已建好的 distro（`-Update`）
+## 更新已建好的 distro
 
 改了 bring-up 設定（`config.ps1`、`provision.sh`、`wslconfig`）後，**不必 unregister 重建**
-—— `-Update` 對現有 distro 冪等收斂，**不動你的 key / 資料 / 已 clone 的東西**。在 Windows
-PowerShell、wsl-bootstrap 資料夾執行：
+—— 直接再跑一次 `.\bootstrap.ps1`。它偵測到 distro 已存在，就進更新模式：先給你看 diff、
+問你要不要套用。冪等收斂，**不動你的 key / 資料 / 已 clone 的東西**。
 
 ```powershell
-.\bootstrap.ps1 -Update            # 先顯示 diff → 問 yes → 套用（互動）
-.\bootstrap.ps1 -Update -WhatIf    # 只看 diff，不問不改（純預覽）
-.\bootstrap.ps1 -Update -Yes       # 跳過詢問直接套用（非互動 / 腳本）
-.\bootstrap.ps1 -Update -Upgrade   # 順便 apt upgrade（預設跳過，免每次動整個系統）
+.\bootstrap.ps1            # 已存在 → 顯示 diff → 問 y → 套用（互動）
+.\bootstrap.ps1 -WhatIf    # 只看 diff，不問不改
+.\bootstrap.ps1 -Yes       # 跳過詢問直接套用（無人值守）
+.\bootstrap.ps1 -Upgrade   # 順便 apt upgrade（預設跳過，免每次動整個系統）
 ```
 
-預覽會逐項顯示：缺哪些 baseline 套件、`wsl.conf` / `~/.ssh/config` / `~/.gitconfig` /
-consent 的 unified diff、哪些 key 會生成、`.wslconfig` 的差異。**只有動到 `wsl.conf` /
-`.wslconfig` 才需 `wsl --shutdown` 生效**，其他即時。
+預覽會逐項顯示會不會變：baseline 套件、`wsl.conf` / `~/.ssh/config` / `~/.gitconfig` /
+consent / `.wslconfig` 的 diff、哪些 key 會生成。**只有動到 `wsl.conf` / `.wslconfig` 才需
+`wsl --shutdown` 生效**，其他即時。
 
 同一支 `provision.sh` 靠 `BS_DRY_RUN` 切換預覽 / 套用，所以「看到的 diff」與「實際套用」
-是同一份邏輯，不會漂移。（軟體層的更新是另一回事：進 distro `make apply`。）
+是同一份邏輯、不會漂移。（軟體層的更新是另一回事：進 distro `make apply`。）
 
 ## 設定（`config.ps1`）
 

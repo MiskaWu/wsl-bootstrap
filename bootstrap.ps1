@@ -6,12 +6,12 @@
 #
 #   cp config.example.ps1 config.ps1   # 首次
 #   notepad config.ps1                 # 改設定
-#   .\bootstrap.ps1                    # 建置（中途自動 shutdown，不需值守）
 #
-#   .\bootstrap.ps1 -Update            # 對現有 distro 收斂：顯示 diff → 問 yes → 套用
-#   .\bootstrap.ps1 -Update -WhatIf    # 只看 diff，不問不改（純預覽）
-#   .\bootstrap.ps1 -Update -Yes       # 跳過詢問直接套用（非互動）
-#   .\bootstrap.ps1 -Update -Upgrade   # update 時連 apt upgrade（預設跳過）
+#   .\bootstrap.ps1           # 聰明預設：distro 不存在→問你要不要建；已存在→更新（先看 diff）
+#   .\bootstrap.ps1 -Yes      # 跳過所有確認 = 無人值守（不存在就建、存在就套用）
+#   .\bootstrap.ps1 -WhatIf   # 已存在時只看 diff、不問不改（純預覽）
+#   .\bootstrap.ps1 -Upgrade  # 更新時連 apt upgrade（預設跳過）
+# -Update 為顯式要求更新（對不存在的 distro 會報錯）；平常直接 .\bootstrap.ps1 即可。
 #
 # 前置需求: Windows 11 (24H2+) 或含 --name 的 WSL 版本、已啟用 WSL2。
 # =============================================================================
@@ -24,10 +24,10 @@ param(
     # `-File` 模式浮現，也就是 README 教的 ExecutionPolicy 繞道那條路。
     [string]$ConfigPath,
 
-    [switch]$Update,    # 對現有 distro 重跑 provision（冪等收斂），不建立、不重啟
-    [switch]$WhatIf,    # 搭 -Update：只預覽 diff，不問不改（dry-run）
-    [switch]$Yes,       # 搭 -Update：跳過互動確認，直接套用
-    [switch]$Upgrade    # 搭 -Update：連 apt upgrade 一起（預設跳過）
+    [switch]$Update,    # 顯式要求更新（對不存在的 distro 會報錯）；平常不必帶，no-arg 自動判斷
+    [switch]$WhatIf,    # 只預覽 diff、不問不改（僅在 distro 已存在時有意義）
+    [switch]$Yes,       # 跳過所有互動確認 = 無人值守（不存在就建、存在就套用）
+    [switch]$Upgrade    # 更新時連 apt upgrade（預設跳過）
 )
 
 $ErrorActionPreference = 'Stop'
@@ -102,7 +102,7 @@ function Invoke-Wsl {
 # -DryRun → BS_DRY_RUN=1（provision 只預覽 diff 不動機器）。
 # update 模式預設 BS_SKIP_UPGRADE=1（跳過 apt upgrade），除非帶 -Upgrade。
 function Invoke-Provision {
-    param([switch]$DryRun, [string]$Label = 'provision')
+    param([switch]$DryRun, [switch]$SkipUpgrade, [string]$Label = 'provision')
     Invoke-Wsl -Script (Get-Script 'provision.sh') -AsUser 'root' -Label $Label -EnvVars @{
         BS_USER            = $User
         BS_GIT_NAME        = $GitName
@@ -111,7 +111,7 @@ function Invoke-Provision {
         BS_SSH_KEY_COMMENT = $SshKeyComment
         BS_SSH_KEY_SCOPES  = ($SshKeyScopes -join ' ')
         BS_DRY_RUN         = $(if ($DryRun) { '1' } else { '' })
-        BS_SKIP_UPGRADE    = $(if ($Update -and -not $Upgrade) { '1' } else { '' })
+        BS_SKIP_UPGRADE    = $(if ($SkipUpgrade) { '1' } else { '' })
     }
 }
 
@@ -154,38 +154,49 @@ function Sync-WslConfig {
 }
 
 # ===========================================================================
-# Update 模式：對現有 distro 冪等收斂（顯示 diff → 問 yes → 套用），不建立、不重啟
+# 模式分派：直接跑 .\bootstrap.ps1 就會「自己問」——不必記旗標。
+#   distro 已存在 → 更新（先看 diff，再問要不要套用）
+#   distro 不存在 → 問要不要從零建立
+# 旗標只是捷徑：-Yes 跳過所有確認（無人值守）、-WhatIf 只看 diff、-Update 顯式要求更新
+# （對不存在的 distro 會報錯，避免打錯字誤建）。
 # ===========================================================================
-if ($Update) {
-    if ($existing -notcontains $Distro) {
-        Die "distro '$Distro' 不存在 —— -Update 是對現有 distro 收斂用的。要新建請不要帶 -Update。"
-    }
+if ($Update -and ($existing -notcontains $Distro)) {
+    Die "distro '$Distro' 不存在 —— -Update 是對現有 distro 用的。要新建就直接 .\bootstrap.ps1（不帶 -Update）。"
+}
 
-    Info "=== Update 預覽（不動機器）：distro '$Distro' 會有哪些變更 ==="
+# ---- 更新模式（偵測到已存在，或 -Update）：diff → 問 → 套用 ------------------
+if ($existing -contains $Distro) {
+    if (-not $Update) { Info "偵測到 distro '$Distro' 已存在 → 更新模式（先給你看 diff）。" }
+    Info "=== 預覽（不動機器）：'$Distro' 會有哪些變更 ==="
     Sync-WslConfig -Preview
-    Invoke-Provision -DryRun -Label 'update-preview'
+    Invoke-Provision -DryRun -SkipUpgrade:(-not $Upgrade) -Label 'update-preview'
 
-    if ($WhatIf) { Info "（-WhatIf：僅預覽，未做任何變更。要套用去掉 -WhatIf。）"; exit 0 }
+    if ($WhatIf) { Info "（-WhatIf：僅預覽，未做任何變更。）"; exit 0 }
 
     if (-not $Yes) {
         Write-Host ""
-        $ans = Read-Host "[bootstrap] 套用以上變更到 '$Distro'？（輸入 yes 確認，其他取消）"
-        if ($ans -ne 'yes') { Info "已取消，未做任何變更。"; exit 0 }
+        $ans = Read-Host "[bootstrap] 套用以上變更到 '$Distro'？(y=套用 / 其他=取消)"
+        if ($ans -notmatch '^(y|yes)$') { Info "已取消，未做任何變更。"; exit 0 }
     }
 
     Info "=== 套用 ==="
     Sync-WslConfig
-    Invoke-Provision -Label 'update'
+    Invoke-Provision -SkipUpgrade:(-not $Upgrade) -Label 'update'
     Info "Update 完成。若上面顯示 wsl.conf / .wslconfig 有變更，需 `wsl --shutdown` 才生效"
     Info "（其他多數改動即時生效，不影響你現有的 key / 資料 / 已 clone 的東西）。"
     exit 0
 }
 
 # ===========================================================================
-# Fresh build：從零建立
+# 建立模式（distro 不存在）：問要不要從零建（-Yes 跳過確認即無人值守）
 # ===========================================================================
-if ($existing -contains $Distro) {
-    Die "distro '$Distro' 已存在。重建請先 `wsl --unregister $Distro`（會刪光內容！）；只想更新用 `-Update`。"
+if ($WhatIf) {
+    Die "-WhatIf 要 distro 已存在才能 diff；'$Distro' 還不存在。要建立就直接 .\bootstrap.ps1。"
+}
+if (-not $Yes) {
+    Write-Host ""
+    $ans = Read-Host "[bootstrap] distro '$Distro' 不存在，要用 image '$UbuntuImage' 從零建立嗎？(y=建立 / 其他=取消)"
+    if ($ans -notmatch '^(y|yes)$') { Info "已取消，未建立。"; exit 0 }
 }
 
 Sync-WslConfig
@@ -239,5 +250,5 @@ Info ""
 Info "軟體工作環境（container runtime / 語言 / toolchain）用你的組態管理另外裝"
 Info "（clone repo → make apply；Makefile 會自己補 ansible）。bootstrap 不綁特定 repo。"
 Info ""
-Info "日後更新這台的 bring-up 設定： .\bootstrap.ps1 -Update（會先給你看 diff）"
+Info "日後要更新這台： 直接 .\bootstrap.ps1（偵測到已存在會自動進更新、先給你看 diff）"
 Info "第一次進入： wsl -d $Distro"
