@@ -66,7 +66,6 @@ wsl -d dev -u miskawu -- bash -l < scripts/verify.sh
   GitHub/GitLab —— 裝完就能 clone 私有 repo（冪等：key 已存在就跳過）
 - 關掉 Ubuntu 26.04 遙測：寫 `~/.config/ubuntu-insights/*-consent.toml`
   （`consent_state = false`），首次啟動不跳互動式 metrics 提問
-- 建立 `~/projects`
 
 之後自動重啟 WSL 兩次（一次讓 systemd／預設 user 生效，一次讓你第一次進去是乾淨 session）。
 

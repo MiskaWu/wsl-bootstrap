@@ -74,10 +74,6 @@ generateResolvConf=true
 appendWindowsPath=true
 EOF
 
-# 給組態管理 repo 一個落腳處（之後 clone 到這，在此 make apply）。
-log "建立 ~/projects"
-install -d -o "${BS_USER}" -g "${BS_USER}" -m 0755 "${home}/projects"
-
 # ---- git 身分（設在 user 的 global config；未給就略過）----------------------
 if [ -n "${BS_GIT_NAME:-}" ] && [ -n "${BS_GIT_EMAIL:-}" ]; then
   log "git 身分：${BS_GIT_NAME} <${BS_GIT_EMAIL}>"

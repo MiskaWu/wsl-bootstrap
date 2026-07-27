@@ -44,7 +44,6 @@ echo "== baseline（git + make + openssh：clone repo + Makefile 起手 + git/ss
 chk "git"        'git --version'
 chk "make"       'make --version | head -1'
 chk "ssh-keygen" 'command -v ssh-keygen'
-chk "projects"   'test -d "$HOME/projects" && echo "$HOME/projects"'
 
 echo "== git-ready（身分 + SSH keys，bring-up 直接備好）=="
 chk "git.name"  'git config --global user.name'
