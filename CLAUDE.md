@@ -74,6 +74,17 @@ bring-up，裝完 distro 就 git-ready、公鑰已印出可貼平台。生成在
   警告 —— 等於**從未生效**，所以「修好它」不是回復原狀，是引入沒驗證過的行為。
   寫檔要用 .NET `WriteAllText` + 無 BOM UTF8：PS 5.1 的 `Set-Content -Encoding UTF8`
   會帶 BOM，而這個檔是 WSL 自己解析的。
+- **distro 不閒置關機：`[general] instanceIdleTimeout=-1`（2026-11）。** 預設最後一個
+  wsl.exe 用戶端離開 15 秒後停掉 distro，systemd 常駐服務（例如聊天機器人）一起停；
+  `vmIdleTimeout` 只管 VM、救不到 distro。穩定設定：官方文件列在 `[general]`、2.5.7 起進
+  正式版、WSL 團隊在 microsoft/WSL#13033（mirrored）與 #13291 建議。代價是 VM 不再自己關。
+- **記憶體回收不需要 key（2026-11 查證，舊註解寫錯過）。** `autoMemoryReclaim` 沒設時預設
+  就是 `dropCache`（2.1.3 起；2.6.1 原始碼 `WslCoreConfig.h` 的 `MemoryReclaim` 預設值），
+  VM 的 user CPU 連續約 10 分鐘低於 0.5% 時丟檔案快取（`src/linux/init/main.cpp`
+  `ConfigureMemoryReduction`）；釋放的頁面由 free page reporting（預設開，
+  `page_reporting_order=5`）還給 Windows。所以 `memory=` 是上限不是常駐量；舊註解說
+  「只有 `wsl --shutdown` 才釋放」是錯的。常駐大戶要在服務端修（例：TEI 推論容器預設每核
+  一份分詞器，一個容器多佔 ~3GB，改在它的 compose 修）。
 - **Ansible 本機 `make apply`**，不走 control node SSH → 所以 bring-up **不裝 sshd**。
 - **設定走 config 檔、執行零互動**（唯一例外：不可逆操作的確認，如 unregister distro）。
 - **pipe-to-shell（`curl … | bash`）已接受**（infra 工程師知道風險，別擅自改 checksum）。

@@ -123,6 +123,16 @@ git 身分與 SSH keys 則相反 —— 在**這裡**（bring-up 就備好，key
 
 改 `.wslconfig` 要 `wsl --shutdown` 才生效，且影響機器上**所有** WSL2 distro。
 
+**distro 不閒置關機：`[general] instanceIdleTimeout=-1`（2026-11 加）。** 預設是最後一個
+WSL 終端機關掉 15 秒後就停掉 distro，distro 裡的常駐服務（systemd user service）跟著停；
+`vmIdleTimeout` 只讓 VM 不關、救不到 distro。這個 key 是穩定設定：官方文件列在 `[general]`，
+WSL 2.5.7（2025-04）起進正式版，WSL 團隊在 microsoft/WSL#13033、#13291 也這樣建議。
+
+**記憶體會自己還給 Windows，不用另外設 key。** `memory=` 是 WSL 能佔的上限，不是一定佔滿：
+Linux 釋放的頁面會還給 Windows（free page reporting，預設開）；檔案快取則在 VM 的 CPU 連續
+約 10 分鐘低於 0.5% 時自動丟掉（`autoMemoryReclaim` 沒設時預設就是 `dropCache`，WSL 2.1.3 起）。
+常駐吃記憶體的是服務本身，要在服務那邊修。
+
 ## 網路：mirrored（實測後的必要選擇）
 
 用 `networkingMode=mirrored`（`.wslconfig` 的 `[wsl2]` 穩定區段）。**這是量測結論，不是
