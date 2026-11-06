@@ -211,7 +211,7 @@ if ($LASTEXITCODE -ne 0) {
 
 # --- Provision: 系統 + user + wsl.conf + baseline + git/keys + OOBE --------
 # 軟體工作環境（container runtime / 語言 / toolchain）不在這裡——用你的組態管理另外裝
-# （clone repo → make apply；Makefile 會自己補 ansible）。bootstrap 不綁特定 repo。
+# （clone repo → make init；Makefile 會自己補 ansible）。bootstrap 不綁特定 repo。
 Invoke-Provision -Label 'provision'
 
 Info "wsl --shutdown（讓 systemd / 預設 user 生效）"
@@ -248,7 +248,7 @@ Info "  wsl -d $Distro -- bash -lc 'cat ~/.ssh/id_ed25519_*.pub'"
 Info "貼到 GitHub / GitLab 後，就能直接 clone 私有 repo。"
 Info ""
 Info "軟體工作環境（container runtime / 語言 / toolchain）用你的組態管理另外裝"
-Info "（clone repo → make apply；Makefile 會自己補 ansible）。bootstrap 不綁特定 repo。"
+Info "（clone repo → make init；Makefile 會自己補 ansible）。bootstrap 不綁特定 repo。"
 Info ""
 Info "日後要更新這台： 直接 .\bootstrap.ps1（偵測到已存在會自動進更新、先給你看 diff）"
 Info "第一次進入： wsl -d $Distro"

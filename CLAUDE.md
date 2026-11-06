@@ -85,7 +85,7 @@ bring-up，裝完 distro 就 git-ready、公鑰已印出可貼平台。生成在
   `page_reporting_order=5`）還給 Windows。所以 `memory=` 是上限不是常駐量；舊註解說
   「只有 `wsl --shutdown` 才釋放」是錯的。常駐大戶要在服務端修（例：TEI 推論容器預設每核
   一份分詞器，一個容器多佔 ~3GB，改在它的 compose 修）。
-- **Ansible 本機 `make apply`**，不走 control node SSH → 所以 bring-up **不裝 sshd**。
+- **Ansible 本機 `make install`**，不走 control node SSH → 所以 bring-up **不裝 sshd**。
 - **設定走 config 檔、執行零互動**（唯一例外：不可逆操作的確認，如 unregister distro）。
 - **pipe-to-shell（`curl … | bash`）已接受**（infra 工程師知道風險，別擅自改 checksum）。
 - **免密碼 sudo 刻意**（開發機）。

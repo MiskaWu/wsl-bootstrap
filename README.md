@@ -17,7 +17,7 @@ host-agnostic、任何 Linux 都能用，不該綁死在這支 WSL 專用的 boo
 - **`wsl-bootstrap`**（本 repo，Windows/PowerShell）做「只有 Windows 能做」的事：建
   distro、在 `/etc/wsl.conf` 設預設 user + systemd、以及讓它們生效的 VM 重啟。
 - **`dev-env-ansible`**（獨立 repo，在機器上跑）是軟體環境，一個冪等的 Ansible role：
-  `make apply` 安裝、`make check` 預覽（乾跑 diff）、`make apply TAGS=node` 之後補裝單項
+  `make install` 安裝、`make check` 預覽（乾跑 diff）、`make install TAGS=node` 之後補裝單項
   —— 不砍掉重建。
 
 ## 需求
@@ -92,7 +92,7 @@ consent / `.wslconfig` 的 diff、哪些 key 會生成。**只有動到 `wsl.con
 `wsl --shutdown` 生效**，其他即時。
 
 同一支 `provision.sh` 靠 `BS_DRY_RUN` 切換預覽 / 套用，所以「看到的 diff」與「實際套用」
-是同一份邏輯、不會漂移。（軟體層的更新是另一回事：進 distro `make apply`。）
+是同一份邏輯、不會漂移。（軟體層的更新是另一回事：進 distro `make install`。）
 
 ## 設定（`config.ps1`）
 
@@ -178,4 +178,4 @@ wsl-bootstrap/
 
 ## 授權
 
-MIT
+[MIT](LICENSE)
